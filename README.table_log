@@ -74,15 +74,23 @@ see table_log.sql for a demo
 
 
 bugs:
-- there was a bug with NULL values, thanks to
-  Steve Head <smhf@onthe.net.au>
-  for reporting this.
 
 
 changes:
+
+- 2002/04/06: Andreas 'ads' Scherbaum (ads@ufp.de)
+  first release
+
+- 2002/04/25: Steve Head (smhf@onthe.net.au)
+  there was a bug with NULL values, thanks to
+  Steve Head for reporting this.
+
 - 2002/04/25: Andreas 'ads' Scherbaum (ads@ufp.de)
   now using version numbers (0.0.5 for this release)
 
+- 2002/09/09: Andreas 'ads' Scherbaum (ads@ufp.de)
+  fix bug in calculating log table name
+  release 0.0.6
 
 If you have any changes or improvements, please contact me.
 

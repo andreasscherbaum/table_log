@@ -110,7 +110,7 @@ Datum table_log(PG_FUNCTION_ARGS) {
   if (trigdata->tg_trigger->tgnargs > 0) {
     /* check if a logtable argument is given */  
     /* if yes, use it */
-    log_table = (char *) palloc(strlen(trigdata->tg_trigger->tgargs[0]) * sizeof(char));
+    log_table = (char *) palloc((strlen(trigdata->tg_trigger->tgargs[0]) + 2) * sizeof(char));
     sprintf(log_table, "%s", trigdata->tg_trigger->tgargs[0]);
   } else {
     /* if no, use 'table name' + '_log' */
