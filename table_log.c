@@ -77,17 +77,22 @@ Datum table_log(PG_FUNCTION_ARGS) {
 
   /* Called by trigger manager ? */
   if (!CALLED_AS_TRIGGER(fcinfo)) {
-    elog(ERROR, "noup: not fired by trigger manager");
+    elog(ERROR, "table_log: not fired by trigger manager");
   }
 
   /* Should be called for ROW trigger */
   if (TRIGGER_FIRED_FOR_STATEMENT(trigdata->tg_event)) {
-    elog(ERROR, "noup: can't process STATEMENT events");
+    elog(ERROR, "table_log: can't process STATEMENT events");
+  }
+
+  /* Should be called AFTER */
+  if (TRIGGER_FIRED_BEFORE(trigdata->tg_event)) {
+    elog(ERROR, "table_log: must be fired after event");
   }
 
   /* Connect to SPI manager */
   if ((ret = SPI_connect()) < 0) {
-    elog(ERROR, "noup: SPI_connect returned %d", ret);
+    elog(ERROR, "table_log: SPI_connect returned %d", ret);
   }
 
   /* table where the query come from */

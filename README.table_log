@@ -92,5 +92,13 @@ changes:
   fix bug in calculating log table name
   release 0.0.6
 
+- 2003/03/22: Andreas 'ads' Scherbaum (ads@ufp.de)
+  fix some error messages (old name from 'noup' renamed to 'table_log')
+  one additional check that the trigger is fired after
+  release 0.0.7
+
 If you have any changes or improvements, please contact me.
 
+my gpg key:
+pub  1024D/4813B5FE 2000-09-29 Andreas Scherbaum <ads@go2web24.de>
+     Key fingerprint = 9F67 73D3 43AA B30E CA8F  56E5 3002 8D24 4813 B5FE
