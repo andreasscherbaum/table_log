@@ -50,6 +50,10 @@
  *
  */
 
+/*
+#define TABLE_LOG_DEBUG 1
+*/
+
 #include "executor/spi.h"	/* this is what you need to work with SPI */
 #include "commands/trigger.h"	/* -"- and triggers */
 #include "mb/pg_wchar.h"	/* support for the quoting functions */
@@ -76,6 +80,10 @@ Datum table_log(PG_FUNCTION_ARGS) {
    * Some checks first...
    */
 
+#ifdef TABLE_LOG_DEBUG
+    elog(NOTICE, "start table_log()");
+#endif
+
   /* Called by trigger manager ? */
   if (!CALLED_AS_TRIGGER(fcinfo)) {
     elog(ERROR, "table_log: not fired by trigger manager");
@@ -96,6 +104,10 @@ Datum table_log(PG_FUNCTION_ARGS) {
     elog(ERROR, "table_log: SPI_connect returned %d", ret);
   }
 
+#ifdef TABLE_LOG_DEBUG
+    elog(NOTICE, "prechecks done, now getting original table attributes");
+#endif
+
   /* table where the query come from */
   snprintf(query, 249, "SELECT COUNT(pg_attribute.attname) AS a FROM pg_class, pg_attribute WHERE pg_class.oid='%i' AND pg_attribute.attnum > 0 AND pg_attribute.attrelid=pg_class.oid", (unsigned int)trigdata->tg_trigtuple->t_tableOid);
   if ((ret = SPI_exec(query, 0)) < 0) {
@@ -108,6 +120,9 @@ Datum table_log(PG_FUNCTION_ARGS) {
     if (number_columns < 1) {
       elog(ERROR, "relation %s does not exist", SPI_getrelname(trigdata->tg_relation));
     }
+#ifdef TABLE_LOG_DEBUG
+    elog(NOTICE, "number_column: %i", number_columns);
+#endif
   } else {
     elog(ERROR, "could not get number columns from relation %s", SPI_getrelname(trigdata->tg_relation));
   }
@@ -123,6 +138,14 @@ Datum table_log(PG_FUNCTION_ARGS) {
     log_table = (char *) palloc((strlen(do_quote_ident(SPI_getrelname(trigdata->tg_relation))) + 4) * sizeof(char));
     sprintf(log_table, "%s_log", SPI_getrelname(trigdata->tg_relation));
   }
+
+#ifdef TABLE_LOG_DEBUG
+    elog(NOTICE, "log table: %s", log_table);
+#endif
+
+#ifdef TABLE_LOG_DEBUG
+    elog(NOTICE, "now check, if log table exists");
+#endif
 
   /* check if log table exists */
   snprintf(query, 249, "SELECT COUNT(pg_attribute.attname) AS a FROM pg_class, pg_attribute WHERE pg_class.relname=%s AND pg_attribute.attnum > 0 AND pg_attribute.attrelid=pg_class.oid", do_quote_literal(log_table));
@@ -143,24 +166,45 @@ Datum table_log(PG_FUNCTION_ARGS) {
   if (number_columns_log != number_columns + 3 && number_columns_log != number_columns + 4) {
     elog(ERROR, "number colums in relation %s does not match columns in %s", SPI_getrelname(trigdata->tg_relation), log_table);
   }
+#ifdef TABLE_LOG_DEBUG
+    elog(NOTICE, "log table check done");
+#endif
 
 
   /* For each column in key ... */
 
+#ifdef TABLE_LOG_DEBUG
+    elog(NOTICE, "now copy data ...");
+#endif
   if (TRIGGER_FIRED_BY_INSERT(trigdata->tg_event)) {
     /* trigger called from INSERT */
+#ifdef TABLE_LOG_DEBUG
+    elog(NOTICE, "mode: INSERT -> new");
+#endif
     __table_log(trigdata, "INSERT", "new", trigdata->tg_trigtuple, number_columns, log_table);
   } else if (TRIGGER_FIRED_BY_UPDATE(trigdata->tg_event)) {
     /* trigger called from UPDATE */
+#ifdef TABLE_LOG_DEBUG
+    elog(NOTICE, "mode: UPDATE -> old");
+#endif
     __table_log(trigdata, "UPDATE", "old", trigdata->tg_trigtuple, number_columns, log_table);
+#ifdef TABLE_LOG_DEBUG
+    elog(NOTICE, "mode: UPDATE -> new");
+#endif
     __table_log(trigdata, "UPDATE", "new", trigdata->tg_newtuple, number_columns, log_table);
   } else if (TRIGGER_FIRED_BY_DELETE(trigdata->tg_event)) {
     /* trigger called from DELETE */
+#ifdef TABLE_LOG_DEBUG
+    elog(NOTICE, "mode: DELETE -> old");
+#endif
     __table_log(trigdata, "DELETE", "old", trigdata->tg_trigtuple, number_columns, log_table);
   } else {
     elog(ERROR, "trigger fired by unknown event");
   }
 
+#ifdef TABLE_LOG_DEBUG
+    elog(NOTICE, "cleanup, trigger done");
+#endif
   /* clean up */
   pfree(log_table);
 
@@ -177,6 +221,9 @@ static void __table_log (TriggerData *trigdata, char *changed_mode, char *change
   char     *query_start;
   int      ret;
 
+#ifdef TABLE_LOG_DEBUG
+    elog(NOTICE, "calculate query size");
+#endif
   /* add all sizes we need and know at this point */
   size_query = size_query + strlen(changed_mode) + strlen(changed_tuple) + strlen(log_table);
 
@@ -194,6 +241,12 @@ static void __table_log (TriggerData *trigdata, char *changed_mode, char *change
     }
   }
 
+#ifdef TABLE_LOG_DEBUG
+    elog(NOTICE, "query size: %i", size_query);
+#endif
+#ifdef TABLE_LOG_DEBUG
+    elog(NOTICE, "build query");
+#endif
   /* allocate memory */
   query_start = (char *) palloc(size_query * sizeof(char));
   query = query_start;
@@ -227,11 +280,21 @@ static void __table_log (TriggerData *trigdata, char *changed_mode, char *change
   sprintf(query, "%s, %s, NOW());", do_quote_literal(changed_mode), do_quote_literal(changed_tuple));
   query = query_start + strlen(query_start);
 
+#ifdef TABLE_LOG_DEBUG
+    elog(NOTICE, "query to execute: %s", query_start);
+#endif
+
+#ifdef TABLE_LOG_DEBUG
+    elog(NOTICE, "execute query");
+#endif
   /* execute insert */
   ret = SPI_exec(query_start, 0);
   if (ret != SPI_OK_INSERT) {
     elog(ERROR, "could not insert log information into relation %s (error: %d)", log_table, ret);
   }
+#ifdef TABLE_LOG_DEBUG
+    elog(NOTICE, "done");
+#endif
 
   /* clean up */
   pfree(query_start);

@@ -165,6 +165,10 @@ changes:
   now allow 3 or 4 columns
   update documentation about trigger_id column
 
+- 2003/06/13: Andreas 'ads' Scherbaum (ads@ufp.de)
+  - release 0.2.1
+  add debugging (activate TABLE_LOG_DEBUG in head of table_log.c and recompile)
+
 
 If you have any changes or improvements, please contact me.
 
