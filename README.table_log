@@ -1,0 +1,88 @@
+
+table_log () -- log changes to another table
+
+some code taken from noup.c
+
+written by Andreas ' ads' Scherbaum (ads@ufp.de)
+
+
+license:
+
+Copyright (c) 2002  Andreas Scherbaum
+
+Basically it is same as the PostgreSQL license (BSD license).
+
+Permission to use, copy, modify, and distribute this software and
+its documentation for any purpose and without fee is hereby
+granted, provided that the above copyright notice appear in all
+copies and that both that copyright notice and this permission
+notice appear in supporting documentation, and that the name of the
+author not be used in advertising or publicity pertaining to
+distribution of the software without specific, written prior
+permission. The author makes no representations about the
+suitability of this software for any purpose.  It is provided "as
+is" without express or implied warranty.
+
+
+description:
+
+create trigger with log table name as argument
+if no table name is given, the actual table name
+plus '_log' will be used
+
+
+example:
+
+CREATE TRIGGER test_log_chg AFTER UPDATE OR INSERT OR DELETE ON test_table FOR EACH ROW
+               EXECUTE PROCEDURE table_log();
+^^^^^ 'test_table_log' will be used to log changes
+
+CREATE TRIGGER test_log_chg AFTER UPDATE OR INSERT OR DELETE ON test_table FOR EACH ROW
+               EXECUTE PROCEDURE table_log('log_table');
+^^^^^ 'log_table' will be used to log changes
+
+
+the log table needs exact the same columns as the
+table where the trigger will be used
+(but without any constraints)
+plus three extra columns:
+
+trigger_mode VARCHAR(10)
+trigger_tuple VARCHAR(5)
+trigger_changed TIMESTAMP
+
+trigger_mode contains 'INSERT', 'UPDATE' or 'DELETE'
+trigger_tuple contains 'old' or 'new'
+
+on INSERT, a log with the 'new' tuple will be written,
+on UPDATE a log with the old tuple and  a log with
+the new tuple will be written and on DELETE a log
+with the old tuple will be written
+
+
+a good method to create the log table from the existing table:
+
+-- create the table without data
+SELECT * INTO test_log FROM test LIMIT 0;
+ALTER TABLE test_log ADD COLUMN trigger_mode VARCHAR(10);
+ALTER TABLE test_log ADD COLUMN trigger_tuple VARCHAR(5);
+ALTER TABLE test_log ADD COLUMN trigger_changed TIMESTAMP;
+
+
+see table_log.sql for a demo
+
+
+
+bugs:
+- there was a bug with NULL values, thanks to
+  Steve Head <smhf@onthe.net.au>
+  for reporting this.
+
+
+changes:
+- 2002/04/25: Andreas 'ads' Scherbaum (ads@ufp.de)
+  now using version numbers (0.0.5 for this release)
+
+
+If you have any changes or improvements, please contact me.
+
