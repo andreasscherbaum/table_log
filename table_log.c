@@ -334,7 +334,7 @@ static void __table_log (TriggerData *trigdata, char *changed_mode, char *change
 
   /* add session user */
   if (use_session_user == 1) {
-    sprintf(query, "SESSION_USER(), ");
+    sprintf(query, "SESSION_USER, ");
     query = query_start + strlen(query_start);
   }
   /* add the 3 extra values */

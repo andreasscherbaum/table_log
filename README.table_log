@@ -344,6 +344,10 @@ The parameter list means:
   restore or use older backups)
   change email address, the old one does no longer work
   
+- 2005/01/24: Andreas 'ads' Scherbaum (ads@wars-nicht.de)
+  - release 0.4.1
+  there seems to be an problem with session_user
+  
 
 
 9. Contact:
