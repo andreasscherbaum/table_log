@@ -25,9 +25,20 @@ DROP FUNCTION table_log ();
 
 -- create function
 CREATE FUNCTION table_log ()
-	RETURNS opaque
-	AS 'MODULE_PATHNAME'
-	LANGUAGE 'C';
+    RETURNS opaque
+    AS 'MODULE_PATHNAME' LANGUAGE 'C';
+CREATE FUNCTION "table_log_restore_table" (VARCHAR, VARCHAR, CHAR, CHAR, CHAR, TIMESTAMP, CHAR, INT, INT)
+    RETURNS VARCHAR
+    AS 'MODULE_PATHNAME', 'table_log_restore_table' LANGUAGE 'C';
+CREATE FUNCTION "table_log_restore_table" (VARCHAR, VARCHAR, CHAR, CHAR, CHAR, TIMESTAMP, CHAR, INT)
+    RETURNS VARCHAR
+    AS 'MODULE_PATHNAME', 'table_log_restore_table' LANGUAGE 'C';
+CREATE FUNCTION "table_log_restore_table" (VARCHAR, VARCHAR, CHAR, CHAR, CHAR, TIMESTAMP, CHAR)
+    RETURNS VARCHAR
+    AS 'MODULE_PATHNAME', 'table_log_restore_table' LANGUAGE 'C';
+CREATE FUNCTION "table_log_restore_table" (VARCHAR, VARCHAR, CHAR, CHAR, CHAR, TIMESTAMP)
+    RETURNS VARCHAR
+    AS 'MODULE_PATHNAME', 'table_log_restore_table' LANGUAGE 'C';
 
 -- create trigger
 CREATE TRIGGER test_log_chg AFTER UPDATE OR INSERT OR DELETE ON test FOR EACH ROW
@@ -40,3 +51,7 @@ SELECT * FROM test_log;
 UPDATE test SET name='other name' WHERE id=1;
 SELECT * FROM test;
 SELECT * FROM test_log;
+
+-- create restore table
+SELECT table_log_restore_table('test', 'id', 'test_log', 'test_log_id', 'test_recover', NOW());
+SELECT * FROM test_recover;

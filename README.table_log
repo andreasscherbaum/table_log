@@ -1,12 +1,44 @@
+Table of content:
 
-table_log () -- log changes to another table
+1. Info
+2. License
+3. Installation
+4. Documentation
+5. Hints
+6. Bugs
+7. Todo
+8. Changes
+9. Contact
 
-some code taken from noup.c
-
-written by Andreas ' ads' Scherbaum (ads@ufp.de)
 
 
-license:
+1. Info
+
+table_log is a set of functions to log changes on a table in PostgreSQL
+and to restore the state of the table or a specific row to any time
+in the past.
+
+For now it contains 2 functions:
+table_log() -- log changes to another table
+table_log_restore_table() -- restore a table or a specific column
+
+NOTE: you can only restore a table with a primary key!
+
+This means: you can log everything, but for the restore function you must
+have a primary key on the original table (and of course another pkey
+on the log table).
+
+If Debian Woody ever gets a newer version of PostgreSQL (at least 7.3),
+i will write another function to return the state of columns inside a
+select query.
+But this needs the 'Table Function API' and is only available in 7.3
+and newer. The new function will be named table_log_show_column().
+
+At the beginning (for table_log()) i have used some code from noup.c.
+
+
+
+2. License:
 
 Copyright (c) 2002  Andreas Scherbaum
 
@@ -24,12 +56,51 @@ suitability of this software for any purpose.  It is provided "as
 is" without express or implied warranty.
 
 
-description:
 
-create trigger with log table name as argument
-if no table name is given, the actual table name
-plus '_log' will be used
+3. Installation:
 
+Hint: If you want debugging output, activate the TABLE_LOG_DEBUG
+      and/or TABLE_LOG_DEBUG_QUERY defines in the head of
+      table_log.c before compiling
+
+There are 2 Makefiles in this directory, one (Makefile) for the
+installation from PostgreSQLs contrib directory and one
+(Makefile.nocontrib) for installation from source.
+For installation from contrib directory see Pg docu.
+For installation from source:
+
+make -f Makefile.nocontrib all
+(as root)
+make -f Makefile.nocontrib install
+
+the pg_config tool must be in $PATH for installation.
+
+then you have to create some new functions:
+(for every database you want to use this functions)
+
+CREATE FUNCTION "table_log" ()
+    RETURNS opaque
+    AS '$libdir/table_log', 'table_log' LANGUAGE 'C';
+CREATE FUNCTION "table_log_restore_table" (VARCHAR, VARCHAR, CHAR, CHAR, CHAR, TIMESTAMP, CHAR, INT, INT)
+    RETURNS VARCHAR
+    AS '$libdir/table_log', 'table_log_restore_table' LANGUAGE 'C';
+CREATE FUNCTION "table_log_restore_table" (VARCHAR, VARCHAR, CHAR, CHAR, CHAR, TIMESTAMP, CHAR, INT)
+    RETURNS VARCHAR
+    AS '$libdir/table_log', 'table_log_restore_table' LANGUAGE 'C';
+CREATE FUNCTION "table_log_restore_table" (VARCHAR, VARCHAR, CHAR, CHAR, CHAR, TIMESTAMP, CHAR)
+    RETURNS VARCHAR
+    AS '$libdir/table_log', 'table_log_restore_table' LANGUAGE 'C';
+CREATE FUNCTION "table_log_restore_table" (VARCHAR, VARCHAR, CHAR, CHAR, CHAR, TIMESTAMP)
+    RETURNS VARCHAR
+    AS '$libdir/table_log', 'table_log_restore_table' LANGUAGE 'C';
+
+
+
+4. Documentation:
+
+Create an trigger on a table with log table name as argument.
+If no table name is given, the actual table name
+plus '_log' will be used.
 
 example:
 
@@ -42,10 +113,10 @@ CREATE TRIGGER test_log_chg AFTER UPDATE OR INSERT OR DELETE ON test_table FOR E
 ^^^^^ 'log_table' will be used to log changes
 
 
-the log table needs exact the same columns as the
+The log table needs exact the same columns as the
 table where the trigger will be used
 (but without any constraints)
-plus three (or four) extra columns:
+plus three or four extra columns:
 
 trigger_mode VARCHAR(10)
 trigger_tuple VARCHAR(5)
@@ -56,18 +127,20 @@ trigger_tuple contains 'old' or 'new'
 trigger_changed is the actual timestamp inside the trancaction
    (or maybe i should use here the actual system timestamp?)
 
-on INSERT, a log with the 'new' tuple will be written,
-on UPDATE a log with the old tuple and  a log with
-the new tuple will be written and on DELETE a log
-with the old tuple will be written
+On INSERT, a log with the 'new' tuple will be written.
+On DELETE, a log with the 'old' tuple will be written.
+On UPDATE, a log with the old tuple and a log with
+the new tuple will be written.
 
-a 4. column is possible:
+A 4. column is possible on the log table:
 trigger_id BIGINT
-
 contains an unique id for sorting table log entries
+NOTE: for the restore function you must have this 4. column!
 
+For backwards compatibility table_log() works with 3 and 4 extra
+columns, but you should everytimes use the 4. column version.
 
-a good method to create the log table from the existing table:
+A good method is to create the log table from the existing table:
 
 -- create the table without data
 SELECT * INTO test_log FROM test LIMIT 0;
@@ -78,8 +151,7 @@ ALTER TABLE test_log ADD COLUMN trigger_changed TIMESTAMP;
 CREATE TRIGGER test_log_chg AFTER UPDATE OR INSERT OR DELETE ON test FOR EACH ROW
                EXECUTE PROCEDURE table_log();
 
-
-or the 4 column method:
+-- or the 4 column method:
 SELECT * INTO test_log FROM test LIMIT 0;
 ALTER TABLE test_log ADD COLUMN trigger_mode VARCHAR(10);
 ALTER TABLE test_log ADD COLUMN trigger_tuple VARCHAR(5);
@@ -92,40 +164,83 @@ SELECT SETVAL('test_log_id', 1, FALSE);
 CREATE TRIGGER test_log_chg AFTER UPDATE OR INSERT OR DELETE ON test FOR EACH ROW
                EXECUTE PROCEDURE table_log();
 
+See table_log.sql for a demo
+
+Now insert, update and delete some data into table 'test'.
+After this, you want to restore your table data:
+
+SELECT table_log_restore_table(<original table name>,
+                               <original table primary key>,
+                               <log table name>,
+                               <log table primary key>,
+                               <restore table name>,
+                               <timestamp>,
+                               <primary key to restore>,
+                               <restore method: 0/1>,
+                               <dont create temporary table: 0/1>);
+
+The parameter list means:
+- original table name: string
+  The name of the original table (test in your example above)
+- original table primary key: string
+  The primary key name of the original table
+- log table name: string
+  The name of the logging table
+- log table primary key: string
+  The primary key of the logging table (trigger_id in your example above)
+  Note: this cannot be the same as the original table pkey!
+- restore table name: string
+  The name for the restore table
+  Note: this table must not exist!
+  Also see <dont create temporary table>
+- timestamp: timestamp
+  The timestamp in past
+  Note: if you give a timestamp where no logging data exists,
+        absolutly nothing will happen. But see <restore method>
+- primary key to restore: string (or NULL)
+  If you want to restore only a single primary key, name it here.
+  Then only data for this pkey will be searched and restored
+  Note: this parameter is optional and defaults to NULL (restore all pkeys)
+        you can say NULL here, if you want to skip this parameter
+- restore method: 0/1 (or NULL)
+  0 means: first create the restore table and then restore forward from the
+           beginning of the log table
+  1 means: first create the log table and copy the actual content of the
+           original table into the log table, then restore backwards
+  Note: this can speed up things, if you know, that your timestamp point
+        is near the end or the beginning
+  Note: this parameter is optional and defaults to NULL (= 0)
+- dont create temporary table: 0/1 (or NULL)
+  Normal the restore table will be created temporarly, this means, the table
+  is only available inside your session and will be deleted, if your
+  session (session = connection, not transaction) is closed
+  This parameter allows you to create a normal table instead
+  Note: if you want to use the restore function sometimes inside a session
+        and you want to use the same restore table name again, you have to
+        delete the restore table or the restore function will blame you
+  Note: this parameter is optional and defaults to NULL (= 0)
 
 
-see table_log.sql for a demo
+
+5. Hints:
+- a index on the log table primary key (trigger_id) and the trigger_changed
+  column will speed up things
 
 
-installation:
 
-there are 2 Makefile's in this directory, one (Makefile) for the
-installation from PostgreSQL's contrib directory and one
-(Makefile.nocontrib) for installation from source.
-For installation from contrib directory see Pg docu.
-For installation from source:
-
-make -f Makefile.nocontrib all
-(as root)
-make -f Makefile.nocontrib install
-
-the pg_config tool must be in $PATH for installation.
-
-then you have to create a new function:
-CREATE FUNCTION "table_log" () RETURNS opaque
-    AS '$libdir/table_log', 'table_log' LANGUAGE 'C';
+6. Bugs:
+- none known
 
 
-bugs:
+
+7. Todo:
+- table_log_show_column()
+  allows select of previous state (possible with PostgreSQL 7.3)
+- is it binary safe? (\000)
 
 
-todo:
-- reverse function(s): give a table name, a previous date
-  (and maybe some additional arguments) and return the state of the
-  table at this date
 
-
-changes:
+8. Changes:
 
 - 2002/04/06: Andreas 'ads' Scherbaum (ads@ufp.de)
   first release
@@ -169,8 +284,17 @@ changes:
   - release 0.2.1
   add debugging (activate TABLE_LOG_DEBUG in head of table_log.c and recompile)
 
+- 2003/11/27: Andras 'ads' Scherbaum (ads@ufp.de)
+  - release 0.3.0
+  add function for restoring table from log
+  cleanup source
+  add more debugging
 
-If you have any changes or improvements, please contact me.
+
+
+9. Contact:
+
+If you have any hints, changes or improvements, please contact me.
 
 my gpg key:
 pub  1024D/4813B5FE 2000-09-29 Andreas Scherbaum <ads@ufp.de>
