@@ -5,7 +5,7 @@
  * see README.table_log for details
  *
  *
- * written by Andreas ' ads' Scherbaum (ads@ufp.de)
+ * written by Andreas ' ads' Scherbaum (ads@wars-nicht.de)
  *
  */
 
@@ -120,7 +120,7 @@ Datum table_log(PG_FUNCTION_ARGS) {
 #endif /*TABLE_LOG_DEBUG */
 
   /* table where the query come from */
-  snprintf(query, 249, "SELECT COUNT(pg_attribute.attname) AS a FROM pg_class, pg_attribute WHERE pg_class.oid='%i' AND pg_attribute.attnum > 0 AND pg_attribute.attrelid=pg_class.oid", (unsigned int)trigdata->tg_trigtuple->t_tableOid);
+  snprintf(query, 249, "SELECT COUNT(pg_attribute.attname) AS a FROM pg_class, pg_attribute WHERE pg_class.oid='%i' AND pg_attribute.attnum > 0 AND pg_attribute.attrelid=pg_class.oid AND NOT pg_attribute.attisdropped", (unsigned int)trigdata->tg_trigtuple->t_tableOid);
 #ifdef TABLE_LOG_DEBUG_QUERY
   elog(NOTICE, "query: %s", query);
 #endif /*TABLE_LOG_DEBUG_QUERY */
@@ -163,7 +163,7 @@ Datum table_log(PG_FUNCTION_ARGS) {
 #endif /*TABLE_LOG_DEBUG */
 
   /* check if log table exists */
-  snprintf(query, 249, "SELECT COUNT(pg_attribute.attname) AS a FROM pg_class, pg_attribute WHERE pg_class.relname=%s AND pg_attribute.attnum > 0 AND pg_attribute.attrelid=pg_class.oid", do_quote_literal(log_table));
+  snprintf(query, 249, "SELECT COUNT(pg_attribute.attname) AS a FROM pg_class, pg_attribute WHERE pg_class.relname=%s AND pg_attribute.attnum > 0 AND pg_attribute.attrelid=pg_class.oid AND NOT pg_attribute.attisdropped", do_quote_literal(log_table));
 #ifdef TABLE_LOG_DEBUG_QUERY
   elog(NOTICE, "query: %s", query);
 #endif /*TABLE_LOG_DEBUG_QUERY */

@@ -15,22 +15,22 @@ Table of content:
 1. Info
 
 table_log is a set of functions to log changes on a table in PostgreSQL
-and to restore the state of the table or a specific row to any time
+and to restore the state of the table or a specific row on any time
 in the past.
 
 For now it contains 2 functions:
 table_log() -- log changes to another table
 table_log_restore_table() -- restore a table or a specific column
 
-NOTE: you can only restore a table with a primary key!
+NOTE: you can only restore a table which contains a primary key!
 
 This means: you can log everything, but for the restore function you must
-have a primary key on the original table (and of course another pkey
+have a primary key on the original table (and of course a different pkey
 on the log table).
 
-If Debian Woody ever gets a newer version of PostgreSQL (at least 7.3),
-i will write another function to return the state of columns inside a
-select query.
+If Debian Stable (for now: Woody) ever gets a newer version of
+PostgreSQL (at least 7.3), i will think about writing another function
+to return the state of columns inside a select query.
 But this needs the 'Table Function API' and is only available in 7.3
 and newer. The new function will be named table_log_show_column().
 
@@ -40,9 +40,9 @@ At the beginning (for table_log()) i have used some code from noup.c.
 
 2. License:
 
-Copyright (c) 2002  Andreas Scherbaum
+Copyright (c) 2002-2005  Andreas Scherbaum
 
-Basically it is same as the PostgreSQL license (BSD license).
+Basically it's the same as the PostgreSQL license (BSD license).
 
 Permission to use, copy, modify, and distribute this software and
 its documentation for any purpose and without fee is hereby
@@ -70,16 +70,18 @@ For installation from contrib directory see Pg docu.
 For installation from source:
 
 make -f Makefile.nocontrib all
-(as root)
+(and as root)
 make -f Makefile.nocontrib install
 
 the pg_config tool must be in $PATH for installation.
 
 then you have to create some new functions:
 (for every database you want to use this functions)
+(for older pg versions <= 7.2 change "RETURNS trigger" to "RETURNS opaque")
+
 
 CREATE FUNCTION "table_log" ()
-    RETURNS opaque
+    RETURNS trigger
     AS '$libdir/table_log', 'table_log' LANGUAGE 'C';
 CREATE FUNCTION "table_log_restore_table" (VARCHAR, VARCHAR, CHAR, CHAR, CHAR, TIMESTAMP, CHAR, INT, INT)
     RETURNS VARCHAR
@@ -100,7 +102,7 @@ CREATE FUNCTION "table_log_restore_table" (VARCHAR, VARCHAR, CHAR, CHAR, CHAR, T
 
 Create an trigger on a table with log table name as argument.
 If no table name is given, the actual table name
-plus '_log' will be used.
+plus '_log' will be used by table_log.
 
 example:
 
@@ -113,8 +115,7 @@ CREATE TRIGGER test_log_chg AFTER UPDATE OR INSERT OR DELETE ON test_table FOR E
 ^^^^^ 'log_table' will be used to log changes
 
 
-The log table needs exact the same columns as the
-table where the trigger will be used
+The log table needs exact the same columns as the original table
 (but without any constraints)
 plus three, four or five extra columns:
 
@@ -130,33 +131,35 @@ trigger_changed is the actual timestamp inside the trancaction
 trigger_user contains the session user name (the one who connected to the
    database, this must not be the actual one)
 
-On INSERT, a log with the 'new' tuple will be written.
-On DELETE, a log with the 'old' tuple will be written.
-On UPDATE, a log with the old tuple and a log with
+On INSERT, a log entry with the 'new' tuple will be written.
+On DELETE, a log entry with the 'old' tuple will be written.
+On UPDATE, a log entry with the old tuple and a log entry with
 the new tuple will be written.
 
-A 4. column is possible on the log table:
+A fourth column is possible on the log table:
 trigger_id BIGINT
 contains an unique id for sorting table log entries
 NOTE: for the restore function you must have this 4. column!
   Q: Why does i need this column?
-  A: Because we have to sort the logs to get them in the correct order.
+  A: Because we have to sort the logs to get them in correct order.
      Hint: if you are sure, you doesnt have a OID wrapover, you can
            use the OID column as unique id (but if you have an OID wrapover,
            the new OIDs doesnt follow a linear scheme, see VACUUM documentation)
 
-A 5. column is possible on the log table:
+A fifth column is possible on the log table:
 trigger_user VARCHAR(32)
 contains the username from the user who originally opened the database connection
   Q: Why not the actual user?
   A: If someone changed the actual user with a setuid function,
-     you always know the username of the function
+     you always know the original username
   Q: Why 32 bytes?
   A: the function doesnt uses 32 bytes but instead NAMEDATALEN defined
-     at compile time (which is normal 32 bytes)
+     at compile time (which defaults to 32 bytes)
   Q: Can i skip the log table name?
   A: No, because Pg then thinks, the '1' is the first parameter and will fail
      to use '1' as logging table
+     This is an backwards compatibility issue, sorry for this.
+
 
 For backwards compatibility table_log() works with 3, 4 or 5 extra
 columns, but you should everytimes use the 4 or 5 column version.
@@ -202,8 +205,9 @@ CREATE TRIGGER test_log_chg AFTER UPDATE OR INSERT OR DELETE ON test FOR EACH RO
 
 See table_log.sql for a demo
 
+
 Now insert, update and delete some data into table 'test'.
-After this, you want to restore your table data:
+After this, you may want to restore your table data:
 
 SELECT table_log_restore_table(<original table name>,
                                <original table primary key>,
@@ -249,11 +253,11 @@ The parameter list means:
 - dont create temporary table: 0/1 (or NULL)
   Normal the restore table will be created temporarly, this means, the table
   is only available inside your session and will be deleted, if your
-  session (session = connection, not transaction) is closed
+  session (session means connection, not transaction) is closed
   This parameter allows you to create a normal table instead
   Note: if you want to use the restore function sometimes inside a session
         and you want to use the same restore table name again, you have to
-        delete the restore table or the restore function will blame you
+        drop the restore table or the restore function will blame you
   Note: this parameter is optional and defaults to NULL (= 0)
 
 
@@ -265,7 +269,7 @@ The parameter list means:
 
 
 6. Bugs:
-- none known
+- none known, but tell me, if you find one
 
 
 
@@ -334,6 +338,12 @@ The parameter list means:
   thanks to iago@patela.org.uk for the feature request
   fix a minor bug in returning the table name
 
+- 2005/01/14: Andreas 'ads' Scherbaum (ads@wars-nicht.de)
+  - release 0.4.0
+  ignore dropped columns on tables (this may cause errors, if you
+  restore or use older backups)
+  change email address, the old one does no longer work
+  
 
 
 9. Contact:
@@ -341,5 +351,5 @@ The parameter list means:
 If you have any hints, changes or improvements, please contact me.
 
 my gpg key:
-pub  1024D/4813B5FE 2000-09-29 Andreas Scherbaum <ads@ufp.de>
+pub  1024D/4813B5FE 2000-09-29 Andreas Scherbaum <ads@wars-nicht.de>
      Key fingerprint = 9F67 73D3 43AA B30E CA8F  56E5 3002 8D24 4813 B5FE
