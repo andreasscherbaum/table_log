@@ -116,16 +116,19 @@ CREATE TRIGGER test_log_chg AFTER UPDATE OR INSERT OR DELETE ON test_table FOR E
 The log table needs exact the same columns as the
 table where the trigger will be used
 (but without any constraints)
-plus three or four extra columns:
+plus three, four or five extra columns:
 
 trigger_mode VARCHAR(10)
 trigger_tuple VARCHAR(5)
 trigger_changed TIMESTAMP
+trigger_user VARCHAR(32)     -- optional
 
 trigger_mode contains 'INSERT', 'UPDATE' or 'DELETE'
 trigger_tuple contains 'old' or 'new'
 trigger_changed is the actual timestamp inside the trancaction
    (or maybe i should use here the actual system timestamp?)
+trigger_user contains the session user name (the one who connected to the
+   database, this must not be the actual one)
 
 On INSERT, a log with the 'new' tuple will be written.
 On DELETE, a log with the 'old' tuple will be written.
@@ -136,9 +139,27 @@ A 4. column is possible on the log table:
 trigger_id BIGINT
 contains an unique id for sorting table log entries
 NOTE: for the restore function you must have this 4. column!
+  Q: Why does i need this column?
+  A: Because we have to sort the logs to get them in the correct order.
+     Hint: if you are sure, you doesnt have a OID wrapover, you can
+           use the OID column as unique id (but if you have an OID wrapover,
+           the new OIDs doesnt follow a linear scheme, see VACUUM documentation)
 
-For backwards compatibility table_log() works with 3 and 4 extra
-columns, but you should everytimes use the 4. column version.
+A 5. column is possible on the log table:
+trigger_user VARCHAR(32)
+contains the username from the user who originally opened the database connection
+  Q: Why not the actual user?
+  A: If someone changed the actual user with a setuid function,
+     you always know the username of the function
+  Q: Why 32 bytes?
+  A: the function doesnt uses 32 bytes but instead NAMEDATALEN defined
+     at compile time (which is normal 32 bytes)
+  Q: Can i skip the log table name?
+  A: No, because Pg then thinks, the '1' is the first parameter and will fail
+     to use '1' as logging table
+
+For backwards compatibility table_log() works with 3, 4 or 5 extra
+columns, but you should everytimes use the 4 or 5 column version.
 
 A good method is to create the log table from the existing table:
 
@@ -147,7 +168,7 @@ SELECT * INTO test_log FROM test LIMIT 0;
 ALTER TABLE test_log ADD COLUMN trigger_mode VARCHAR(10);
 ALTER TABLE test_log ADD COLUMN trigger_tuple VARCHAR(5);
 ALTER TABLE test_log ADD COLUMN trigger_changed TIMESTAMP;
-- now activate the history function
+-- now activate the history function
 CREATE TRIGGER test_log_chg AFTER UPDATE OR INSERT OR DELETE ON test FOR EACH ROW
                EXECUTE PROCEDURE table_log();
 
@@ -160,9 +181,24 @@ ALTER TABLE test_log ADD COLUMN trigger_id BIGINT;
 ALTER TABLE test_log ALTER COLUMN trigger_id SET DEFAULT NEXTVAL('test_log_id');
 CREATE SEQUENCE test_log_id;
 SELECT SETVAL('test_log_id', 1, FALSE);
-- now activate the history function
+-- now activate the history function
 CREATE TRIGGER test_log_chg AFTER UPDATE OR INSERT OR DELETE ON test FOR EACH ROW
                EXECUTE PROCEDURE table_log();
+
+-- or the 5 column method (with user name in 'trigger_user'):
+SELECT * INTO test_log FROM test LIMIT 0;
+ALTER TABLE test_log ADD COLUMN trigger_mode VARCHAR(10);
+ALTER TABLE test_log ADD COLUMN trigger_tuple VARCHAR(5);
+ALTER TABLE test_log ADD COLUMN trigger_changed TIMESTAMP;
+ALTER TABLE test_log ADD COLUMN trigger_user VARCHAR(32);
+ALTER TABLE test_log ADD COLUMN trigger_id BIGINT;
+ALTER TABLE test_log ALTER COLUMN trigger_id SET DEFAULT NEXTVAL('test_log_id');
+CREATE SEQUENCE test_log_id;
+SELECT SETVAL('test_log_id', 1, FALSE);
+-- now activate the history function
+-- you have to give the log table name!
+CREATE TRIGGER test_log_chg AFTER UPDATE OR INSERT OR DELETE ON test FOR EACH ROW
+               EXECUTE PROCEDURE table_log('test_log', 1);
 
 See table_log.sql for a demo
 
@@ -235,9 +271,11 @@ The parameter list means:
 
 7. Todo:
 - table_log_show_column()
-  allows select of previous state (possible with PostgreSQL 7.3)
+  allows select of previous state (possible with PostgreSQL 7.3 and higher)
+    see Table Function API
 - is it binary safe? (\000)
-
+- do not only check the number columns in both tables,
+  really check the names of the columns
 
 
 8. Changes:
@@ -284,11 +322,17 @@ The parameter list means:
   - release 0.2.1
   add debugging (activate TABLE_LOG_DEBUG in head of table_log.c and recompile)
 
-- 2003/11/27: Andras 'ads' Scherbaum (ads@ufp.de)
+- 2003/11/27: Andreas 'ads' Scherbaum (ads@ufp.de)
   - release 0.3.0
   add function for restoring table from log
   cleanup source
   add more debugging
+
+- 2003/12/11: Andreas 'ads' Scherbaum (ads@ufp.de)
+  - release 0.3.1
+  add session_user to log table on request
+  thanks to iago@patela.org.uk for the feature request
+  fix a minor bug in returning the table name
 
 
 

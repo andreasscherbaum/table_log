@@ -25,6 +25,7 @@
 #include <string.h>		/* strlen() */
 #include "miscadmin.h"
 #include "utils/formatting.h"
+#include "utils/builtins.h"
 #include "fmgr.h"
 
 #ifndef PG_NARGS
@@ -38,7 +39,7 @@
 extern Datum table_log(PG_FUNCTION_ARGS);
 static char *do_quote_ident(char *iptr);
 static char *do_quote_literal(char *iptr);
-static void __table_log (TriggerData *trigdata, char *changed_mode, char *changed_tuple, HeapTuple tuple, int number_columns, char *log_table);
+static void __table_log (TriggerData *trigdata, char *changed_mode, char *changed_tuple, HeapTuple tuple, int number_columns, char *log_table, int use_session_user);
 void __table_log_restore_table_insert(SPITupleTable *spi_tuptable, char *table_restore, char *table_orig_pkey, char *col_query_start, int col_pkey, int number_columns, int i);
 void __table_log_restore_table_update(SPITupleTable *spi_tuptable, char *table_restore, char *table_orig_pkey, char *col_query_start, int col_pkey, int number_columns, int i, char *old_key_string);
 void __table_log_restore_table_delete(SPITupleTable *spi_tuptable, char *table_restore, char *table_orig_pkey, char *col_query_start, int col_pkey, int number_columns, int i);
@@ -72,7 +73,7 @@ Datum table_log(PG_FUNCTION_ARGS) {
   int            number_columns = 0;		/* counts the number columns in the table */
   int            number_columns_log = 0;	/* counts the number columns in the table */
   char           *log_table;
-
+  int            use_session_user = 0;          /* should we write the current (session) user to the log table? */
   /*
    * Some checks first...
    */
@@ -100,6 +101,18 @@ Datum table_log(PG_FUNCTION_ARGS) {
   ret = SPI_connect();
   if (ret != SPI_OK_CONNECT) {
     elog(ERROR, "table_log: SPI_connect returned %d", ret);
+  }
+
+  /* should we write the current user? */
+  if (trigdata->tg_trigger->tgnargs > 1) {
+    /* check if a second argument is given */  
+    /* if yes, use it, if it is 1 */
+    if (atoi(trigdata->tg_trigger->tgargs[1]) == 1) {
+      use_session_user = 1;
+#ifdef TABLE_LOG_DEBUG
+      elog(NOTICE, "will write session user to 'trigger_user'");
+#endif /*TABLE_LOG_DEBUG */
+    }
   }
 
 #ifdef TABLE_LOG_DEBUG
@@ -169,8 +182,17 @@ Datum table_log(PG_FUNCTION_ARGS) {
     elog(ERROR, "could not get number columns in relation %s", log_table);
   }
   /* check if the logtable has 3 (or now 4) columns more than our table */
-  if (number_columns_log != number_columns + 3 && number_columns_log != number_columns + 4) {
-    elog(ERROR, "number colums in relation %s does not match columns in %s", SPI_getrelname(trigdata->tg_relation), log_table);
+  /* +1 if we should write the session user */
+  if (use_session_user == 0) {
+    /* without session user */
+    if (number_columns_log != number_columns + 3 && number_columns_log != number_columns + 4) {
+      elog(ERROR, "number colums in relation %s does not match columns in %s", SPI_getrelname(trigdata->tg_relation), log_table);
+    }
+  } else {
+    /* with session user */
+    if (number_columns_log != number_columns + 3 + 1 && number_columns_log != number_columns + 4 + 1) {
+      elog(ERROR, "number colums in relation %s does not match columns in %s", SPI_getrelname(trigdata->tg_relation), log_table);
+    }
   }
 #ifdef TABLE_LOG_DEBUG
   elog(NOTICE, "log table OK");
@@ -187,23 +209,23 @@ Datum table_log(PG_FUNCTION_ARGS) {
 #ifdef TABLE_LOG_DEBUG
     elog(NOTICE, "mode: INSERT -> new");
 #endif /*TABLE_LOG_DEBUG */
-    __table_log(trigdata, "INSERT", "new", trigdata->tg_trigtuple, number_columns, log_table);
+    __table_log(trigdata, "INSERT", "new", trigdata->tg_trigtuple, number_columns, log_table, use_session_user);
   } else if (TRIGGER_FIRED_BY_UPDATE(trigdata->tg_event)) {
     /* trigger called from UPDATE */
 #ifdef TABLE_LOG_DEBUG
     elog(NOTICE, "mode: UPDATE -> old");
 #endif /*TABLE_LOG_DEBUG */
-    __table_log(trigdata, "UPDATE", "old", trigdata->tg_trigtuple, number_columns, log_table);
+    __table_log(trigdata, "UPDATE", "old", trigdata->tg_trigtuple, number_columns, log_table, use_session_user);
 #ifdef TABLE_LOG_DEBUG
     elog(NOTICE, "mode: UPDATE -> new");
 #endif /*TABLE_LOG_DEBUG */
-    __table_log(trigdata, "UPDATE", "new", trigdata->tg_newtuple, number_columns, log_table);
+    __table_log(trigdata, "UPDATE", "new", trigdata->tg_newtuple, number_columns, log_table, use_session_user);
   } else if (TRIGGER_FIRED_BY_DELETE(trigdata->tg_event)) {
     /* trigger called from DELETE */
 #ifdef TABLE_LOG_DEBUG
     elog(NOTICE, "mode: DELETE -> old");
 #endif /*TABLE_LOG_DEBUG */
-    __table_log(trigdata, "DELETE", "old", trigdata->tg_trigtuple, number_columns, log_table);
+    __table_log(trigdata, "DELETE", "old", trigdata->tg_trigtuple, number_columns, log_table, use_session_user);
   } else {
     elog(ERROR, "trigger fired by unknown event");
   }
@@ -232,10 +254,11 @@ parameter:
   - pointer to tuple
   - number columns in table
   - logging table
+  - flag for writing session user
 return:
   none
 */
-static void __table_log (TriggerData *trigdata, char *changed_mode, char *changed_tuple, HeapTuple tuple, int number_columns, char *log_table) {
+static void __table_log (TriggerData *trigdata, char *changed_mode, char *changed_tuple, HeapTuple tuple, int number_columns, char *log_table, int use_session_user) {
   char     *before_char;
   int      i;
   /* start with 100 bytes */
@@ -264,6 +287,11 @@ static void __table_log (TriggerData *trigdata, char *changed_mode, char *change
     }
   }
 
+  if (use_session_user == 1) {
+    /* add memory for session user */
+    size_query += NAMEDATALEN + 20;
+  }
+
 #ifdef TABLE_LOG_DEBUG
   // elog(NOTICE, "query size: %i", size_query);
 #endif /*TABLE_LOG_DEBUG */
@@ -284,6 +312,11 @@ static void __table_log (TriggerData *trigdata, char *changed_mode, char *change
     query = query_start + strlen(query_start);
   }
 
+  /* add session user */
+  if (use_session_user == 1) {
+    sprintf(query, "trigger_user, ");
+    query = query_start + strlen(query_start);
+  }
   /* add the 3 extra colum names */
   sprintf(query, "trigger_mode, trigger_tuple, trigger_changed) VALUES (");
   query = query_start + strlen(query_start);
@@ -299,6 +332,11 @@ static void __table_log (TriggerData *trigdata, char *changed_mode, char *change
     query = query_start + strlen(query_start);
   }
 
+  /* add session user */
+  if (use_session_user == 1) {
+    sprintf(query, "SESSION_USER(), ");
+    query = query_start + strlen(query_start);
+  }
   /* add the 3 extra values */
   sprintf(query, "%s, %s, NOW());", do_quote_literal(changed_mode), do_quote_literal(changed_tuple));
   query = query_start + strlen(query_start);
@@ -830,7 +868,7 @@ Datum table_log_restore_table(PG_FUNCTION_ARGS) {
 #endif /*TABLE_LOG_DEBUG */
 
   /* convert string to VarChar for result */
-  return_name = DirectFunctionCall2(varcharin, table_restore, strlen(table_restore) + VARHDRSZ);
+  return_name = DatumGetVarCharP(DirectFunctionCall2(varcharin, CStringGetDatum(table_restore), Int32GetDatum(strlen(table_restore) + VARHDRSZ)));
 
   /* close SPI connection */
   SPI_finish();
