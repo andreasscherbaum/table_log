@@ -15,6 +15,10 @@ SELECT * INTO test_log FROM test LIMIT 0;
 ALTER TABLE test_log ADD COLUMN trigger_mode VARCHAR(10);
 ALTER TABLE test_log ADD COLUMN trigger_tuple VARCHAR(5);
 ALTER TABLE test_log ADD COLUMN trigger_changed TIMESTAMP;
+ALTER TABLE test_log ADD COLUMN trigger_id BIGINT;
+ALTER TABLE test_log ALTER COLUMN trigger_id SET DEFAULT NEXTVAL('test_log_id');
+CREATE SEQUENCE test_log_id;
+SELECT SETVAL('test_log_id', 1, FALSE);
 
 -- drop old function
 DROP FUNCTION table_log ();

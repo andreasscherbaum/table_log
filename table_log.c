@@ -139,8 +139,8 @@ Datum table_log(PG_FUNCTION_ARGS) {
   } else {
     elog(ERROR, "could not get number columns in relation %s", log_table);
   }
-  /* check if the logtable has 3 columns more than our table */
-  if (number_columns_log != number_columns + 3) {
+  /* check if the logtable has 3 (or now 4) columns more than our table */
+  if (number_columns_log != number_columns + 3 && number_columns_log != number_columns + 4) {
     elog(ERROR, "number colums in relation %s does not match columns in %s", SPI_getrelname(trigdata->tg_relation), log_table);
   }
 

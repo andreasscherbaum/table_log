@@ -45,7 +45,7 @@ CREATE TRIGGER test_log_chg AFTER UPDATE OR INSERT OR DELETE ON test_table FOR E
 the log table needs exact the same columns as the
 table where the trigger will be used
 (but without any constraints)
-plus three extra columns:
+plus three (or four) extra columns:
 
 trigger_mode VARCHAR(10)
 trigger_tuple VARCHAR(5)
@@ -53,11 +53,18 @@ trigger_changed TIMESTAMP
 
 trigger_mode contains 'INSERT', 'UPDATE' or 'DELETE'
 trigger_tuple contains 'old' or 'new'
+trigger_changed is the actual timestamp inside the trancaction
+   (or maybe i should use here the actual system timestamp?)
 
 on INSERT, a log with the 'new' tuple will be written,
 on UPDATE a log with the old tuple and  a log with
 the new tuple will be written and on DELETE a log
 with the old tuple will be written
+
+a 4. column is possible:
+trigger_id BIGINT
+
+contains an unique id for sorting table log entries
 
 
 a good method to create the log table from the existing table:
@@ -70,6 +77,21 @@ ALTER TABLE test_log ADD COLUMN trigger_changed TIMESTAMP;
 - now activate the history function
 CREATE TRIGGER test_log_chg AFTER UPDATE OR INSERT OR DELETE ON test FOR EACH ROW
                EXECUTE PROCEDURE table_log();
+
+
+or the 4 column method:
+SELECT * INTO test_log FROM test LIMIT 0;
+ALTER TABLE test_log ADD COLUMN trigger_mode VARCHAR(10);
+ALTER TABLE test_log ADD COLUMN trigger_tuple VARCHAR(5);
+ALTER TABLE test_log ADD COLUMN trigger_changed TIMESTAMP;
+ALTER TABLE test_log ADD COLUMN trigger_id BIGINT;
+ALTER TABLE test_log ALTER COLUMN trigger_id SET DEFAULT NEXTVAL('test_log_id');
+CREATE SEQUENCE test_log_id;
+SELECT SETVAL('test_log_id', 1, FALSE);
+- now activate the history function
+CREATE TRIGGER test_log_chg AFTER UPDATE OR INSERT OR DELETE ON test FOR EACH ROW
+               EXECUTE PROCEDURE table_log();
+
 
 
 see table_log.sql for a demo
@@ -137,6 +159,12 @@ changes:
 - 2003/06/12: Andreas 'ads' Scherbaum (ads@ufp.de)
   update documentation (thanks to Erik Thiele <erik@thiele-hydraulik.de>
   for pointing this out)
+
+- 2003/06/13: Andreas 'ads' Scherbaum (ads@ufp.de)
+  - release 0.2.0
+  now allow 3 or 4 columns
+  update documentation about trigger_id column
+
 
 If you have any changes or improvements, please contact me.
 
