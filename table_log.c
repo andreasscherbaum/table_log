@@ -50,10 +50,11 @@
  *
  */
 
-#include "executor/spi.h"          /* this is what you need to work with SPI */
-#include "commands/trigger.h"      /* -"- and triggers */
-#include <ctype.h>                 /* tolower () */
-#include <string.h>                /* strlen() */
+#include "executor/spi.h"	/* this is what you need to work with SPI */
+#include "commands/trigger.h"	/* -"- and triggers */
+#include "mb/pg_wchar.h"	/* support for the quoting functions */
+#include <ctype.h>		/* tolower () */
+#include <string.h>		/* strlen() */
 
 extern Datum table_log(PG_FUNCTION_ARGS);
 static char *do_quote_ident(char *iptr);
@@ -66,9 +67,9 @@ PG_FUNCTION_INFO_V1(table_log);
 Datum table_log(PG_FUNCTION_ARGS) {
   TriggerData    *trigdata = (TriggerData *) fcinfo->context;
   int            ret;
-  char           query[250];              /* for getting table infos (250 chars should be enough) */
-  int            number_columns = 0;      /* counts the number columns in the table */
-  int            number_columns_log = 0;  /* counts the number columns in the table */
+  char           query[250];			/* for getting table infos (250 chars should be enough) */
+  int            number_columns = 0;		/* counts the number columns in the table */
+  int            number_columns_log = 0;	/* counts the number columns in the table */
   char           *log_table;
 
   /*

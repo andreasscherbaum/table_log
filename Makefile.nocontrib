@@ -1,0 +1,20 @@
+# define vriables
+CC = gcc
+RM = /bin/rm -f
+CP = /bin/cp
+CHMOD = /bin/chmod
+CHOWN = /bin/chown
+CFLAGS = -I`pg_config --includedir-server` -I`pg_config --includedir`
+LDFLAGS = -L`pg_config --libdir`
+
+all:	clean
+	$(CC) -Wall $(CFLAGS) -fpic -c table_log.c
+	$(CC) -Wall $(LDFLAGS) -shared -o table_log.so table_log.o
+
+clean:
+	$(RM) *.o *.so
+
+install:	all
+	$(CP) table_log.so `pg_config --pkglibdir`
+	$(CHOWN) root:root `pg_config --pkglibdir`/table_log.so
+	$(CHMOD) 644 `pg_config --pkglibdir`/table_log.so

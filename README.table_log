@@ -72,6 +72,20 @@ ALTER TABLE test_log ADD COLUMN trigger_changed TIMESTAMP;
 see table_log.sql for a demo
 
 
+installation:
+
+there are 2 Makefile's in this directory, one (Makefile) for the
+installation from PostgreSQL's contrib directory and one
+(Makefile.nocontrib) for installation from source.
+For installation from contrib directory see Pg docu.
+For installation from source:
+
+make -f Makefile.nocontrib all
+(as root)
+make -f Makefile.nocontrib install
+
+the pg_config tool must be in $PATH for installation.
+
 
 bugs:
 
@@ -96,6 +110,10 @@ changes:
   fix some error messages (old name from 'noup' renamed to 'table_log')
   one additional check that the trigger is fired after
   release 0.0.7
+
+- 2003/03/23: Andreas 'ads' Scherbaum (ads@ufp.de)
+  create a second Makefile for installing from source
+  release 0.1.0
 
 If you have any changes or improvements, please contact me.
 
