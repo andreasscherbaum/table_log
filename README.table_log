@@ -67,6 +67,9 @@ SELECT * INTO test_log FROM test LIMIT 0;
 ALTER TABLE test_log ADD COLUMN trigger_mode VARCHAR(10);
 ALTER TABLE test_log ADD COLUMN trigger_tuple VARCHAR(5);
 ALTER TABLE test_log ADD COLUMN trigger_changed TIMESTAMP;
+- now activate the history function
+CREATE TRIGGER test_log_chg AFTER UPDATE OR INSERT OR DELETE ON test FOR EACH ROW
+               EXECUTE PROCEDURE table_log();
 
 
 see table_log.sql for a demo
@@ -86,8 +89,18 @@ make -f Makefile.nocontrib install
 
 the pg_config tool must be in $PATH for installation.
 
+then you have to create a new function:
+CREATE FUNCTION "table_log" () RETURNS opaque
+    AS '$libdir/table_log', 'table_log' LANGUAGE 'C';
+
 
 bugs:
+
+
+todo:
+- reverse function(s): give a table name, a previous date
+  (and maybe some additional arguments) and return the state of the
+  table at this date
 
 
 changes:
@@ -115,8 +128,18 @@ changes:
   create a second Makefile for installing from source
   release 0.1.0
 
+- 2003/04/20: Andreas 'ads' Scherbaum (ads@ufp.de)
+  change Makefile.nocontrib to Linux only and make a comment about
+  installation informations for other platforms
+  (its too difficult to have all install options here,
+   i dont have the ability to test all platforms)
+
+- 2003/06/12: Andreas 'ads' Scherbaum (ads@ufp.de)
+  update documentation (thanks to Erik Thiele <erik@thiele-hydraulik.de>
+  for pointing this out)
+
 If you have any changes or improvements, please contact me.
 
 my gpg key:
-pub  1024D/4813B5FE 2000-09-29 Andreas Scherbaum <ads@go2web24.de>
+pub  1024D/4813B5FE 2000-09-29 Andreas Scherbaum <ads@ufp.de>
      Key fingerprint = 9F67 73D3 43AA B30E CA8F  56E5 3002 8D24 4813 B5FE

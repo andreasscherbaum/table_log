@@ -1,5 +1,10 @@
-# define vriables
-CC = gcc
+# this compile, link and install options are for linux
+#
+# options for other platforms can be found in xfunc-c.html (in PG documentation)
+
+# define variables
+CC = /usr/bin/gcc
+LD = /usr/bin/ld
 RM = /bin/rm -f
 CP = /bin/cp
 CHMOD = /bin/chmod
@@ -7,14 +12,16 @@ CHOWN = /bin/chown
 CFLAGS = -I`pg_config --includedir-server` -I`pg_config --includedir`
 LDFLAGS = -L`pg_config --libdir`
 
+NAME = table_log
+
 all:	clean
-	$(CC) -Wall $(CFLAGS) -fpic -c table_log.c
-	$(CC) -Wall $(LDFLAGS) -shared -o table_log.so table_log.o
+	$(CC) -Wall $(CFLAGS) -fpic -c $(NAME).c
+	$(CC) -Wall $(LDFLAGS) -shared -o $(NAME).so $(NAME).o
 
 clean:
 	$(RM) *.o *.so
 
 install:	all
-	$(CP) table_log.so `pg_config --pkglibdir`
-	$(CHOWN) root:root `pg_config --pkglibdir`/table_log.so
-	$(CHMOD) 644 `pg_config --pkglibdir`/table_log.so
+	$(CP) $(NAME).so `pg_config --pkglibdir`
+	$(CHOWN) root:root `pg_config --pkglibdir`/$(NAME).so
+	$(CHMOD) 644 `pg_config --pkglibdir`/$(NAME).so
