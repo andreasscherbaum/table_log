@@ -4,6 +4,8 @@ Table of content:
 2. License
 3. Installation
 4. Documentation
+   4.1. Manual table log and trigger creation
+   4.2. Restore table data
 5. Hints
 6. Bugs
 7. Todo
@@ -83,22 +85,45 @@ then you have to create some new functions:
 CREATE FUNCTION "table_log" ()
     RETURNS trigger
     AS '$libdir/table_log', 'table_log' LANGUAGE 'C';
-CREATE FUNCTION "table_log_restore_table" (VARCHAR, VARCHAR, CHAR, CHAR, CHAR, TIMESTAMP, CHAR, INT, INT)
+CREATE FUNCTION "table_log_restore_table" (VARCHAR, VARCHAR, CHAR, CHAR, CHAR, TIMESTAMPTZ, CHAR, INT, INT)
     RETURNS VARCHAR
     AS '$libdir/table_log', 'table_log_restore_table' LANGUAGE 'C';
-CREATE FUNCTION "table_log_restore_table" (VARCHAR, VARCHAR, CHAR, CHAR, CHAR, TIMESTAMP, CHAR, INT)
+CREATE FUNCTION "table_log_restore_table" (VARCHAR, VARCHAR, CHAR, CHAR, CHAR, TIMESTAMPTZ, CHAR, INT)
     RETURNS VARCHAR
     AS '$libdir/table_log', 'table_log_restore_table' LANGUAGE 'C';
-CREATE FUNCTION "table_log_restore_table" (VARCHAR, VARCHAR, CHAR, CHAR, CHAR, TIMESTAMP, CHAR)
+CREATE FUNCTION "table_log_restore_table" (VARCHAR, VARCHAR, CHAR, CHAR, CHAR, TIMESTAMPTZ, CHAR)
     RETURNS VARCHAR
     AS '$libdir/table_log', 'table_log_restore_table' LANGUAGE 'C';
-CREATE FUNCTION "table_log_restore_table" (VARCHAR, VARCHAR, CHAR, CHAR, CHAR, TIMESTAMP)
+CREATE FUNCTION "table_log_restore_table" (VARCHAR, VARCHAR, CHAR, CHAR, CHAR, TIMESTAMPTZ)
     RETURNS VARCHAR
     AS '$libdir/table_log', 'table_log_restore_table' LANGUAGE 'C';
 
+
+Install table_log_init() by running 'psql < table_log_init.sql'
 
 
 4. Documentation:
+
+The entire log table and trigger creation can be done by using the
+table_log_init(ncols, ...) function. The parameter ncols decides how many extra
+columns there will be added to the created log table, it can be 3, 4 or 5 and
+the extra columns are described in chapter 4.1.
+
+The function can be used in different ways:
+
+  table_log_init(ncols, tablename):
+    create the log table as tablename_log
+    
+  table_log_init(ncols, tablename, logschema):
+    create the log table with the same name as the original table, but in the 
+    schema logschema.
+
+  table_log_init(ncols, tableschema, tablename, logschema, logname):
+    log the changes in table tableschema.tablename into the log table
+    logschema.logname.
+
+
+4.1. Manual table log and trigger creation
 
 Create an trigger on a table with log table name as argument.
 If no table name is given, the actual table name
@@ -121,7 +146,7 @@ plus three, four or five extra columns:
 
 trigger_mode VARCHAR(10)
 trigger_tuple VARCHAR(5)
-trigger_changed TIMESTAMP
+trigger_changed TIMESTAMPTZ
 trigger_user VARCHAR(32)     -- optional
 
 trigger_mode contains 'INSERT', 'UPDATE' or 'DELETE'
@@ -170,7 +195,7 @@ A good method is to create the log table from the existing table:
 SELECT * INTO test_log FROM test LIMIT 0;
 ALTER TABLE test_log ADD COLUMN trigger_mode VARCHAR(10);
 ALTER TABLE test_log ADD COLUMN trigger_tuple VARCHAR(5);
-ALTER TABLE test_log ADD COLUMN trigger_changed TIMESTAMP;
+ALTER TABLE test_log ADD COLUMN trigger_changed TIMESTAMPTZ;
 -- now activate the history function
 CREATE TRIGGER test_log_chg AFTER UPDATE OR INSERT OR DELETE ON test FOR EACH ROW
                EXECUTE PROCEDURE table_log();
@@ -179,7 +204,7 @@ CREATE TRIGGER test_log_chg AFTER UPDATE OR INSERT OR DELETE ON test FOR EACH RO
 SELECT * INTO test_log FROM test LIMIT 0;
 ALTER TABLE test_log ADD COLUMN trigger_mode VARCHAR(10);
 ALTER TABLE test_log ADD COLUMN trigger_tuple VARCHAR(5);
-ALTER TABLE test_log ADD COLUMN trigger_changed TIMESTAMP;
+ALTER TABLE test_log ADD COLUMN trigger_changed TIMESTAMPTZ;
 ALTER TABLE test_log ADD COLUMN trigger_id BIGINT;
 ALTER TABLE test_log ALTER COLUMN trigger_id SET DEFAULT NEXTVAL('test_log_id');
 CREATE SEQUENCE test_log_id;
@@ -192,7 +217,7 @@ CREATE TRIGGER test_log_chg AFTER UPDATE OR INSERT OR DELETE ON test FOR EACH RO
 SELECT * INTO test_log FROM test LIMIT 0;
 ALTER TABLE test_log ADD COLUMN trigger_mode VARCHAR(10);
 ALTER TABLE test_log ADD COLUMN trigger_tuple VARCHAR(5);
-ALTER TABLE test_log ADD COLUMN trigger_changed TIMESTAMP;
+ALTER TABLE test_log ADD COLUMN trigger_changed TIMESTAMPTZ;
 ALTER TABLE test_log ADD COLUMN trigger_user VARCHAR(32);
 ALTER TABLE test_log ADD COLUMN trigger_id BIGINT;
 ALTER TABLE test_log ALTER COLUMN trigger_id SET DEFAULT NEXTVAL('test_log_id');
@@ -205,6 +230,8 @@ CREATE TRIGGER test_log_chg AFTER UPDATE OR INSERT OR DELETE ON test FOR EACH RO
 
 See table_log.sql for a demo
 
+
+4.2. Restore table data
 
 Now insert, update and delete some data into table 'test'.
 After this, you may want to restore your table data:
@@ -348,9 +375,14 @@ The parameter list means:
   - release 0.4.1
   there seems to be an problem with session_user
   
-
+- 2005/04/22: Kim Hansen <kimhanse@gmail.com>
+  - release 0.4.2
+  added table_log_init()
+  added schema support
 
 9. Contact:
+
+The project is hosted at http://pgfoundry.org/projects/tablelog/
 
 If you have any hints, changes or improvements, please contact me.
 

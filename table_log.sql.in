@@ -14,7 +14,7 @@ DROP TABLE test_log;
 SELECT * INTO test_log FROM test LIMIT 0;
 ALTER TABLE test_log ADD COLUMN trigger_mode VARCHAR(10);
 ALTER TABLE test_log ADD COLUMN trigger_tuple VARCHAR(5);
-ALTER TABLE test_log ADD COLUMN trigger_changed TIMESTAMP;
+ALTER TABLE test_log ADD COLUMN trigger_changed TIMESTAMPTZ;
 ALTER TABLE test_log ADD COLUMN trigger_id BIGINT;
 ALTER TABLE test_log ALTER COLUMN trigger_id SET DEFAULT NEXTVAL('test_log_id');
 CREATE SEQUENCE test_log_id;
@@ -27,16 +27,16 @@ DROP FUNCTION table_log ();
 CREATE FUNCTION table_log ()
     RETURNS opaque
     AS 'MODULE_PATHNAME' LANGUAGE 'C';
-CREATE FUNCTION "table_log_restore_table" (VARCHAR, VARCHAR, CHAR, CHAR, CHAR, TIMESTAMP, CHAR, INT, INT)
+CREATE FUNCTION "table_log_restore_table" (VARCHAR, VARCHAR, CHAR, CHAR, CHAR, TIMESTAMPTZ, CHAR, INT, INT)
     RETURNS VARCHAR
     AS 'MODULE_PATHNAME', 'table_log_restore_table' LANGUAGE 'C';
-CREATE FUNCTION "table_log_restore_table" (VARCHAR, VARCHAR, CHAR, CHAR, CHAR, TIMESTAMP, CHAR, INT)
+CREATE FUNCTION "table_log_restore_table" (VARCHAR, VARCHAR, CHAR, CHAR, CHAR, TIMESTAMPTZ, CHAR, INT)
     RETURNS VARCHAR
     AS 'MODULE_PATHNAME', 'table_log_restore_table' LANGUAGE 'C';
-CREATE FUNCTION "table_log_restore_table" (VARCHAR, VARCHAR, CHAR, CHAR, CHAR, TIMESTAMP, CHAR)
+CREATE FUNCTION "table_log_restore_table" (VARCHAR, VARCHAR, CHAR, CHAR, CHAR, TIMESTAMPTZ, CHAR)
     RETURNS VARCHAR
     AS 'MODULE_PATHNAME', 'table_log_restore_table' LANGUAGE 'C';
-CREATE FUNCTION "table_log_restore_table" (VARCHAR, VARCHAR, CHAR, CHAR, CHAR, TIMESTAMP)
+CREATE FUNCTION "table_log_restore_table" (VARCHAR, VARCHAR, CHAR, CHAR, CHAR, TIMESTAMPTZ)
     RETURNS VARCHAR
     AS 'MODULE_PATHNAME', 'table_log_restore_table' LANGUAGE 'C';
 

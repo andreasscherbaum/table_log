@@ -26,7 +26,8 @@
 #include "miscadmin.h"
 #include "utils/formatting.h"
 #include "utils/builtins.h"
-#include "fmgr.h"
+#include <utils/lsyscache.h>
+#include <funcapi.h>
 
 #ifndef PG_NARGS
 /*
@@ -39,7 +40,7 @@
 extern Datum table_log(PG_FUNCTION_ARGS);
 static char *do_quote_ident(char *iptr);
 static char *do_quote_literal(char *iptr);
-static void __table_log (TriggerData *trigdata, char *changed_mode, char *changed_tuple, HeapTuple tuple, int number_columns, char *log_table, int use_session_user);
+static void __table_log (TriggerData *trigdata, char *changed_mode, char *changed_tuple, HeapTuple tuple, int number_columns, char *log_table, int use_session_user, char *log_schema);
 void __table_log_restore_table_insert(SPITupleTable *spi_tuptable, char *table_restore, char *table_orig_pkey, char *col_query_start, int col_pkey, int number_columns, int i);
 void __table_log_restore_table_update(SPITupleTable *spi_tuptable, char *table_restore, char *table_orig_pkey, char *col_query_start, int col_pkey, int number_columns, int i, char *old_key_string);
 void __table_log_restore_table_delete(SPITupleTable *spi_tuptable, char *table_restore, char *table_orig_pkey, char *col_query_start, int col_pkey, int number_columns, int i);
@@ -49,12 +50,28 @@ char *__table_log_varcharout(VarChar *s);
 /* the trigger function */
 PG_FUNCTION_INFO_V1(table_log);
 /* only build, if the 'Table Function API' is available */
-#ifdef FUNCAPI_H
+#ifdef FUNCAPI_H_not_implemented
 /* restore one single column */
 PG_FUNCTION_INFO_V1(table_log_show_column);
 #endif /* FUNCAPI_H */
 /* restore a full table */
 PG_FUNCTION_INFO_V1(table_log_restore_table);
+
+
+/*
+ * count_columns (TupleDesc tupleDesc)
+ * Will count and return the number of columns in the table described by 
+ * tupleDesc. It needs to ignore droped columns.
+ */
+int count_columns (TupleDesc tupleDesc) {
+    int count=0;
+    int i;
+    for (i=0; i<tupleDesc->natts; ++i) {
+        if (! tupleDesc->attrs[i]->attisdropped) ++count;
+    }
+    return count;
+}
+
 
 /*
 table_log()
@@ -72,6 +89,8 @@ Datum table_log(PG_FUNCTION_ARGS) {
   char           query[250 + NAMEDATALEN];	/* for getting table infos (250 chars (+ one times the length of all names) should be enough) */
   int            number_columns = 0;		/* counts the number columns in the table */
   int            number_columns_log = 0;	/* counts the number columns in the table */
+  char           *orig_schema;
+  char           *log_schema;
   char           *log_table;
   int            use_session_user = 0;          /* should we write the current (session) user to the log table? */
   /*
@@ -103,6 +122,33 @@ Datum table_log(PG_FUNCTION_ARGS) {
     elog(ERROR, "table_log: SPI_connect returned %d", ret);
   }
 
+  orig_schema = get_namespace_name(RelationGetNamespace(trigdata->tg_relation));
+
+#ifdef TABLE_LOG_DEBUG
+  elog(NOTICE, "prechecks done, now getting original table attributes");
+#endif /*TABLE_LOG_DEBUG */
+
+    number_columns = count_columns(trigdata->tg_relation->rd_att);
+    if (number_columns < 1) {
+      elog(ERROR, "table_log: can this happen?");
+    }
+#ifdef TABLE_LOG_DEBUG
+    elog(NOTICE, "number column: %i", number_columns);
+#endif /*TABLE_LOG_DEBUG */
+
+  if (trigdata->tg_trigger->tgnargs > 3) {
+    elog(ERROR, "table_log: too many args to trigger");
+  }
+  
+  /* name of the log schema */
+  if (trigdata->tg_trigger->tgnargs > 2) {
+    /* check if a log schema argument is given, if yes, use it */
+    log_schema = trigdata->tg_trigger->tgargs[2];
+  } else {
+    /* if no, use orig_schema */
+    log_schema = orig_schema;
+  }
+
   /* should we write the current user? */
   if (trigdata->tg_trigger->tgnargs > 1) {
     /* check if a second argument is given */  
@@ -115,33 +161,6 @@ Datum table_log(PG_FUNCTION_ARGS) {
     }
   }
 
-#ifdef TABLE_LOG_DEBUG
-  elog(NOTICE, "prechecks done, now getting original table attributes");
-#endif /*TABLE_LOG_DEBUG */
-
-  /* table where the query come from */
-  snprintf(query, 249, "SELECT COUNT(pg_attribute.attname) AS a FROM pg_class, pg_attribute WHERE pg_class.oid='%i' AND pg_attribute.attnum > 0 AND pg_attribute.attrelid=pg_class.oid AND NOT pg_attribute.attisdropped", (unsigned int)trigdata->tg_trigtuple->t_tableOid);
-#ifdef TABLE_LOG_DEBUG_QUERY
-  elog(NOTICE, "query: %s", query);
-#endif /*TABLE_LOG_DEBUG_QUERY */
-  ret = SPI_exec(query, 0);
-  if (ret != SPI_OK_SELECT) {
-    elog(ERROR, "could get number columns from relation %s", SPI_getrelname(trigdata->tg_relation));
-  }
-
-  /* get the number columns in the table */
-  if (SPI_processed > 0) {
-    number_columns = DatumGetInt32(DirectFunctionCall1(int4in, CStringGetDatum(SPI_getvalue(SPI_tuptable->vals[0], SPI_tuptable->tupdesc, 1))));
-    if (number_columns < 1) {
-      elog(ERROR, "relation %s does not exist", SPI_getrelname(trigdata->tg_relation));
-    }
-#ifdef TABLE_LOG_DEBUG
-    elog(NOTICE, "number column: %i", number_columns);
-#endif /*TABLE_LOG_DEBUG */
-  } else {
-    elog(ERROR, "could not get number columns from relation %s", SPI_getrelname(trigdata->tg_relation));
-  }
-
   /* name of the log table */
   if (trigdata->tg_trigger->tgnargs > 0) {
     /* check if a logtable argument is given */  
@@ -150,7 +169,7 @@ Datum table_log(PG_FUNCTION_ARGS) {
     sprintf(log_table, "%s", trigdata->tg_trigger->tgargs[0]);
   } else {
     /* if no, use 'table name' + '_log' */
-    log_table = (char *) palloc((strlen(do_quote_ident(SPI_getrelname(trigdata->tg_relation))) + 4) * sizeof(char));
+    log_table = (char *) palloc((strlen(do_quote_ident(SPI_getrelname(trigdata->tg_relation))) + 5) * sizeof(char));
     sprintf(log_table, "%s_log", SPI_getrelname(trigdata->tg_relation));
   }
 
@@ -162,31 +181,19 @@ Datum table_log(PG_FUNCTION_ARGS) {
   elog(NOTICE, "now check, if log table exists");
 #endif /*TABLE_LOG_DEBUG */
 
-  /* check if log table exists */
-  snprintf(query, 249, "SELECT COUNT(pg_attribute.attname) AS a FROM pg_class, pg_attribute WHERE pg_class.relname=%s AND pg_attribute.attnum > 0 AND pg_attribute.attrelid=pg_class.oid AND NOT pg_attribute.attisdropped", do_quote_literal(log_table));
-#ifdef TABLE_LOG_DEBUG_QUERY
-  elog(NOTICE, "query: %s", query);
-#endif /*TABLE_LOG_DEBUG_QUERY */
-  ret = SPI_exec(query, 0);
-  if (ret != SPI_OK_SELECT) {
-    elog(ERROR, "could get number columns from relation %s", log_table);
-  }
-
   /* get the number columns in the table */
-  if (SPI_processed > 0) {
-    number_columns_log = DatumGetInt32(DirectFunctionCall1(int4in, CStringGetDatum(SPI_getvalue(SPI_tuptable->vals[0], SPI_tuptable->tupdesc, 1))));
-    if (number_columns_log < 1) {
-      elog(ERROR, "relation %s does not exist", log_table);
-    }
-  } else {
+  snprintf(query, 249, "%s.%s", do_quote_ident(log_schema), do_quote_ident(log_table));
+  number_columns_log = count_columns(RelationNameGetTupleDesc(query));
+  if (number_columns_log < 1) {
     elog(ERROR, "could not get number columns in relation %s", log_table);
   }
+
   /* check if the logtable has 3 (or now 4) columns more than our table */
   /* +1 if we should write the session user */
   if (use_session_user == 0) {
     /* without session user */
     if (number_columns_log != number_columns + 3 && number_columns_log != number_columns + 4) {
-      elog(ERROR, "number colums in relation %s does not match columns in %s", SPI_getrelname(trigdata->tg_relation), log_table);
+      elog(ERROR, "number colums in relation %s(%d) does not match columns in %s(%d)", SPI_getrelname(trigdata->tg_relation), number_columns, log_table, number_columns_log);
     }
   } else {
     /* with session user */
@@ -209,23 +216,23 @@ Datum table_log(PG_FUNCTION_ARGS) {
 #ifdef TABLE_LOG_DEBUG
     elog(NOTICE, "mode: INSERT -> new");
 #endif /*TABLE_LOG_DEBUG */
-    __table_log(trigdata, "INSERT", "new", trigdata->tg_trigtuple, number_columns, log_table, use_session_user);
+    __table_log(trigdata, "INSERT", "new", trigdata->tg_trigtuple, number_columns, log_table, use_session_user, log_schema);
   } else if (TRIGGER_FIRED_BY_UPDATE(trigdata->tg_event)) {
     /* trigger called from UPDATE */
 #ifdef TABLE_LOG_DEBUG
     elog(NOTICE, "mode: UPDATE -> old");
 #endif /*TABLE_LOG_DEBUG */
-    __table_log(trigdata, "UPDATE", "old", trigdata->tg_trigtuple, number_columns, log_table, use_session_user);
+    __table_log(trigdata, "UPDATE", "old", trigdata->tg_trigtuple, number_columns, log_table, use_session_user, log_schema);
 #ifdef TABLE_LOG_DEBUG
     elog(NOTICE, "mode: UPDATE -> new");
 #endif /*TABLE_LOG_DEBUG */
-    __table_log(trigdata, "UPDATE", "new", trigdata->tg_newtuple, number_columns, log_table, use_session_user);
+    __table_log(trigdata, "UPDATE", "new", trigdata->tg_newtuple, number_columns, log_table, use_session_user, log_schema);
   } else if (TRIGGER_FIRED_BY_DELETE(trigdata->tg_event)) {
     /* trigger called from DELETE */
 #ifdef TABLE_LOG_DEBUG
     elog(NOTICE, "mode: DELETE -> old");
 #endif /*TABLE_LOG_DEBUG */
-    __table_log(trigdata, "DELETE", "old", trigdata->tg_trigtuple, number_columns, log_table, use_session_user);
+    __table_log(trigdata, "DELETE", "old", trigdata->tg_trigtuple, number_columns, log_table, use_session_user, log_schema);
   } else {
     elog(ERROR, "trigger fired by unknown event");
   }
@@ -258,7 +265,7 @@ parameter:
 return:
   none
 */
-static void __table_log (TriggerData *trigdata, char *changed_mode, char *changed_tuple, HeapTuple tuple, int number_columns, char *log_table, int use_session_user) {
+static void __table_log (TriggerData *trigdata, char *changed_mode, char *changed_tuple, HeapTuple tuple, int number_columns, char *log_table, int use_session_user, char *log_schema) {
   char     *before_char;
   int      i;
   /* start with 100 bytes */
@@ -271,7 +278,7 @@ static void __table_log (TriggerData *trigdata, char *changed_mode, char *change
   elog(NOTICE, "calculate query size");
 #endif /*TABLE_LOG_DEBUG */
   /* add all sizes we need and know at this point */
-  size_query += strlen(changed_mode) + strlen(changed_tuple) + strlen(log_table);
+  size_query += strlen(changed_mode) + strlen(changed_tuple) + strlen(log_table) + strlen(log_schema);
 
   /* calculate size of the columns */
   for (i = 1; i <= number_columns; i++) {
@@ -303,7 +310,7 @@ static void __table_log (TriggerData *trigdata, char *changed_mode, char *change
   query = query_start;
 
   /* build query */
-  sprintf(query, "INSERT INTO %s (", do_quote_ident(log_table));
+  sprintf(query, "INSERT INTO %s.%s (", do_quote_ident(log_schema), do_quote_ident(log_table));
   query = query_start + strlen(query);
 
   /* add colum names */
@@ -363,7 +370,7 @@ static void __table_log (TriggerData *trigdata, char *changed_mode, char *change
 }
 
 
-#ifdef FUNCAPI_H
+#ifdef FUNCAPI_H_not_implemented
 /*
 table_log_show_column()
 
@@ -609,12 +616,12 @@ Datum table_log_restore_table(PG_FUNCTION_ARGS) {
 #endif /*TABLE_LOG_DEBUG_QUERY */
   ret = SPI_exec(query, 0);
   if (ret != SPI_OK_SELECT) {
-    elog(ERROR, "could not check relation: %s", table_log);
+    elog(ERROR, "could not check relation [1]: %s", table_log);
   }
   if (SPI_processed > 0) {
     table_log_columns = SPI_processed;
   } else {
-    elog(ERROR, "could not check relation: %s", table_log);
+    elog(ERROR, "could not check relation [2]: %s", table_log);
   }
   /* check pkey in log table */
   snprintf(query, 249, "SELECT a.attname FROM pg_class c, pg_attribute a WHERE c.relname=%s AND c.relkind='r' AND a.attname=%s AND a.attnum > 0 AND a.attrelid = c.oid", do_quote_literal(table_log), do_quote_literal(table_log_pkey));
@@ -623,10 +630,10 @@ Datum table_log_restore_table(PG_FUNCTION_ARGS) {
 #endif /*TABLE_LOG_DEBUG_QUERY */
   ret = SPI_exec(query, 0);
   if (ret != SPI_OK_SELECT) {
-    elog(ERROR, "could not check relation: %s", table_log);
+    elog(ERROR, "could not check relation [3]: %s", table_log);
   }
   if (SPI_processed == 0) {
-    elog(ERROR, "could not check relation: %s", table_log);
+    elog(ERROR, "could not check relation [4]: %s", table_log);
   }
 #ifdef TABLE_LOG_DEBUG
   elog(NOTICE, "log table: OK (%i columns)", table_log_columns);

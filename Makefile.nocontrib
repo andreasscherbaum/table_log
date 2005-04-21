@@ -14,14 +14,20 @@ LDFLAGS = -L`pg_config --libdir`
 
 NAME = table_log
 
-all:	clean
-	$(CC) -Wall $(CFLAGS) -fpic -c $(NAME).c
-	$(CC) -Wall $(LDFLAGS) -shared -o $(NAME).so $(NAME).o
+all: $(NAME).so $(NAME).sql
 
+$(NAME).o: $(NAME).c
+	$(CC) -Wall $(CFLAGS) -fpic -c $<
+
+$(NAME).so: $(NAME).o
+	$(CC) -Wall $(LDFLAGS) -shared $< -o $@
+
+$(NAME).sql: $(NAME).sql.in
+	sed 's,MODULE_PATHNAME,$$libdir/$(NAME),g' $< > $@
+	
 clean:
-	$(RM) *.o *.so
+	$(RM) $(NAME).o $(NAME).so $(NAME).sql
 
-install:	all
-	$(CP) $(NAME).so `pg_config --pkglibdir`
-	$(CHOWN) root:root `pg_config --pkglibdir`/$(NAME).so
-	$(CHMOD) 644 `pg_config --pkglibdir`/$(NAME).so
+install: $(NAME).so
+	$(CP) $< `pg_config --pkglibdir`
+	$(CHMOD) 644 `pg_config --pkglibdir`/$<
