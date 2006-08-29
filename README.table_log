@@ -380,6 +380,11 @@ The parameter list means:
   added table_log_init()
   added schema support
 
+- 2006/08/30: Andreas 'ads' Scherbaum (ads@wars-nicht.de)
+  - release 0.4.3
+  drop support for < 7.4 (return type is TRIGGER now)
+  fix bug with dropped columns
+
 9. Contact:
 
 The project is hosted at http://pgfoundry.org/projects/tablelog/

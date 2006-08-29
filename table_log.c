@@ -9,12 +9,7 @@
  *
  */
 
-/*
-#define TABLE_LOG_DEBUG 1
-*/
-/*
-#define TABLE_LOG_DEBUG_QUERY 1
-*/
+#include "table_log.h"
 
 #include "postgres.h"
 #include "fmgr.h"
@@ -64,12 +59,16 @@ PG_FUNCTION_INFO_V1(table_log_restore_table);
  * tupleDesc. It needs to ignore droped columns.
  */
 int count_columns (TupleDesc tupleDesc) {
-    int count=0;
-    int i;
-    for (i=0; i<tupleDesc->natts; ++i) {
-        if (! tupleDesc->attrs[i]->attisdropped) ++count;
+  int count=0;
+  int i;
+
+  for (i = 0; i < tupleDesc->natts; ++i) {
+    if (!tupleDesc->attrs[i]->attisdropped) {
+      ++count;
     }
-    return count;
+  }
+
+  return count;
 }
 
 
@@ -93,6 +92,7 @@ Datum table_log(PG_FUNCTION_ARGS) {
   char           *log_schema;
   char           *log_table;
   int            use_session_user = 0;          /* should we write the current (session) user to the log table? */
+
   /*
    * Some checks first...
    */
@@ -128,12 +128,12 @@ Datum table_log(PG_FUNCTION_ARGS) {
   elog(NOTICE, "prechecks done, now getting original table attributes");
 #endif /*TABLE_LOG_DEBUG */
 
-    number_columns = count_columns(trigdata->tg_relation->rd_att);
-    if (number_columns < 1) {
-      elog(ERROR, "table_log: can this happen?");
-    }
+  number_columns = count_columns(trigdata->tg_relation->rd_att);
+  if (number_columns < 1) {
+    elog(ERROR, "table_log: can this happen?");
+  }
 #ifdef TABLE_LOG_DEBUG
-    elog(NOTICE, "number column: %i", number_columns);
+  elog(NOTICE, "number columns in orig table: %i", number_columns);
 #endif /*TABLE_LOG_DEBUG */
 
   if (trigdata->tg_trigger->tgnargs > 3) {
@@ -187,6 +187,9 @@ Datum table_log(PG_FUNCTION_ARGS) {
   if (number_columns_log < 1) {
     elog(ERROR, "could not get number columns in relation %s", log_table);
   }
+#ifdef TABLE_LOG_DEBUG
+    elog(NOTICE, "number columns in log table: %i", number_columns_log);
+#endif /*TABLE_LOG_DEBUG */
 
   /* check if the logtable has 3 (or now 4) columns more than our table */
   /* +1 if we should write the session user */
@@ -267,7 +270,7 @@ return:
 */
 static void __table_log (TriggerData *trigdata, char *changed_mode, char *changed_tuple, HeapTuple tuple, int number_columns, char *log_table, int use_session_user, char *log_schema) {
   char     *before_char;
-  int      i;
+  int      i, col_nr, found_col;
   /* start with 100 bytes */
   int      size_query = 100;
   char     *query;
@@ -281,11 +284,23 @@ static void __table_log (TriggerData *trigdata, char *changed_mode, char *change
   size_query += strlen(changed_mode) + strlen(changed_tuple) + strlen(log_table) + strlen(log_schema);
 
   /* calculate size of the columns */
+  col_nr = 0;
   for (i = 1; i <= number_columns; i++) {
+    col_nr++;
+    found_col = 0;
+    do {
+      if (trigdata->tg_relation->rd_att->attrs[col_nr - 1]->attisdropped) {
+        /* this column is dropped, skip it */
+        col_nr++;
+        continue;
+      } else {
+        found_col++;
+      }
+    } while (found_col == 0);
     /* the column name */
-    size_query += strlen(do_quote_ident(SPI_fname(trigdata->tg_relation->rd_att, i))) + 3;
+    size_query += strlen(do_quote_ident(SPI_fname(trigdata->tg_relation->rd_att, col_nr))) + 3;
     /* the value */
-    before_char = SPI_getvalue(tuple, trigdata->tg_relation->rd_att, i);
+    before_char = SPI_getvalue(tuple, trigdata->tg_relation->rd_att, col_nr);
     /* old size plus this char and 3 bytes for , and so */
     if (before_char == NULL) {
       size_query += 6;
@@ -314,8 +329,20 @@ static void __table_log (TriggerData *trigdata, char *changed_mode, char *change
   query = query_start + strlen(query);
 
   /* add colum names */
+  col_nr = 0;
   for (i = 1; i <= number_columns; i++) {
-    sprintf(query, "%s, ", do_quote_ident(SPI_fname(trigdata->tg_relation->rd_att, i)));
+    col_nr++;
+    found_col = 0;
+    do {
+      if (trigdata->tg_relation->rd_att->attrs[col_nr - 1]->attisdropped) {
+        /* this column is dropped, skip it */
+        col_nr++;
+        continue;
+      } else {
+        found_col++;
+      }
+    } while (found_col == 0);
+    sprintf(query, "%s, ", do_quote_ident(SPI_fname(trigdata->tg_relation->rd_att, col_nr)));
     query = query_start + strlen(query_start);
   }
 
@@ -329,8 +356,20 @@ static void __table_log (TriggerData *trigdata, char *changed_mode, char *change
   query = query_start + strlen(query_start);
 
   /* add values */
+  col_nr = 0;
   for (i = 1; i <= number_columns; i++) {
-    before_char = SPI_getvalue(tuple, trigdata->tg_relation->rd_att, i);
+    col_nr++;
+    found_col = 0;
+    do {
+      if (trigdata->tg_relation->rd_att->attrs[col_nr - 1]->attisdropped) {
+        /* this column is dropped, skip it */
+        col_nr++;
+        continue;
+      } else {
+        found_col++;
+      }
+    } while (found_col == 0);
+    before_char = SPI_getvalue(tuple, trigdata->tg_relation->rd_att, col_nr);
     if (before_char == NULL) {
       sprintf(query, "NULL, ");
     } else {
