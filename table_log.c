@@ -5,7 +5,7 @@
  * see README.table_log for details
  *
  *
- * written by Andreas ' ads' Scherbaum (ads@wars-nicht.de)
+ * written by Andreas ' ads' Scherbaum (ads@pgug.de)
  *
  */
 
@@ -24,6 +24,12 @@
 #include <utils/lsyscache.h>
 #include <funcapi.h>
 
+/* for PostgreSQL >= 8.2.x */
+#ifdef PG_MODULE_MAGIC
+PG_MODULE_MAGIC;
+#endif
+
+
 #ifndef PG_NARGS
 /*
  * Get number of arguments passed to function.
@@ -33,6 +39,7 @@
 #endif
 
 extern Datum table_log(PG_FUNCTION_ARGS);
+Datum table_log_restore_table(PG_FUNCTION_ARGS);
 static char *do_quote_ident(char *iptr);
 static char *do_quote_literal(char *iptr);
 static void __table_log (TriggerData *trigdata, char *changed_mode, char *changed_tuple, HeapTuple tuple, int number_columns, char *log_table, int use_session_user, char *log_schema);
@@ -40,11 +47,12 @@ void __table_log_restore_table_insert(SPITupleTable *spi_tuptable, char *table_r
 void __table_log_restore_table_update(SPITupleTable *spi_tuptable, char *table_restore, char *table_orig_pkey, char *col_query_start, int col_pkey, int number_columns, int i, char *old_key_string);
 void __table_log_restore_table_delete(SPITupleTable *spi_tuptable, char *table_restore, char *table_orig_pkey, char *col_query_start, int col_pkey, int number_columns, int i);
 char *__table_log_varcharout(VarChar *s);
+int count_columns (TupleDesc tupleDesc);
 
 /* this is a V1 (new) function */
 /* the trigger function */
 PG_FUNCTION_INFO_V1(table_log);
-/* only build, if the 'Table Function API' is available */
+/* build only, if the 'Table Function API' is available */
 #ifdef FUNCAPI_H_not_implemented
 /* restore one single column */
 PG_FUNCTION_INFO_V1(table_log_show_column);
@@ -56,7 +64,7 @@ PG_FUNCTION_INFO_V1(table_log_restore_table);
 /*
  * count_columns (TupleDesc tupleDesc)
  * Will count and return the number of columns in the table described by 
- * tupleDesc. It needs to ignore droped columns.
+ * tupleDesc. It needs to ignore dropped columns.
  */
 int count_columns (TupleDesc tupleDesc) {
   int count=0;
@@ -99,45 +107,46 @@ Datum table_log(PG_FUNCTION_ARGS) {
 
 #ifdef TABLE_LOG_DEBUG
   elog(NOTICE, "start table_log()");
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
 
-  /* Called by trigger manager ? */
+  /* called by trigger manager? */
   if (!CALLED_AS_TRIGGER(fcinfo)) {
     elog(ERROR, "table_log: not fired by trigger manager");
   }
 
-  /* Should be called for ROW trigger */
+  /* must only be called for ROW trigger */
   if (TRIGGER_FIRED_FOR_STATEMENT(trigdata->tg_event)) {
     elog(ERROR, "table_log: can't process STATEMENT events");
   }
 
-  /* Should be called AFTER */
+  /* must only be called AFTER */
   if (TRIGGER_FIRED_BEFORE(trigdata->tg_event)) {
     elog(ERROR, "table_log: must be fired after event");
   }
 
-  /* Connect to SPI manager */
+  /* now connect to SPI manager */
   ret = SPI_connect();
   if (ret != SPI_OK_CONNECT) {
     elog(ERROR, "table_log: SPI_connect returned %d", ret);
   }
 
+  /* get schema name for the table, in case we need it later */
   orig_schema = get_namespace_name(RelationGetNamespace(trigdata->tg_relation));
 
 #ifdef TABLE_LOG_DEBUG
   elog(NOTICE, "prechecks done, now getting original table attributes");
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
 
   number_columns = count_columns(trigdata->tg_relation->rd_att);
   if (number_columns < 1) {
-    elog(ERROR, "table_log: can this happen?");
+    elog(ERROR, "table_log: number of columns in table is < 1, can this happen?");
   }
 #ifdef TABLE_LOG_DEBUG
   elog(NOTICE, "number columns in orig table: %i", number_columns);
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
 
   if (trigdata->tg_trigger->tgnargs > 3) {
-    elog(ERROR, "table_log: too many args to trigger");
+    elog(ERROR, "table_log: too many arguments to trigger");
   }
   
   /* name of the log schema */
@@ -152,12 +161,12 @@ Datum table_log(PG_FUNCTION_ARGS) {
   /* should we write the current user? */
   if (trigdata->tg_trigger->tgnargs > 1) {
     /* check if a second argument is given */  
-    /* if yes, use it, if it is 1 */
+    /* if yes, use it, if it is true */
     if (atoi(trigdata->tg_trigger->tgargs[1]) == 1) {
       use_session_user = 1;
 #ifdef TABLE_LOG_DEBUG
       elog(NOTICE, "will write session user to 'trigger_user'");
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
     }
   }
 
@@ -175,11 +184,11 @@ Datum table_log(PG_FUNCTION_ARGS) {
 
 #ifdef TABLE_LOG_DEBUG
   elog(NOTICE, "log table: %s", log_table);
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
 
 #ifdef TABLE_LOG_DEBUG
   elog(NOTICE, "now check, if log table exists");
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
 
   /* get the number columns in the table */
   snprintf(query, 249, "%s.%s", do_quote_ident(log_schema), do_quote_ident(log_table));
@@ -189,7 +198,7 @@ Datum table_log(PG_FUNCTION_ARGS) {
   }
 #ifdef TABLE_LOG_DEBUG
     elog(NOTICE, "number columns in log table: %i", number_columns_log);
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
 
   /* check if the logtable has 3 (or now 4) columns more than our table */
   /* +1 if we should write the session user */
@@ -206,35 +215,35 @@ Datum table_log(PG_FUNCTION_ARGS) {
   }
 #ifdef TABLE_LOG_DEBUG
   elog(NOTICE, "log table OK");
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
 
 
   /* For each column in key ... */
 
 #ifdef TABLE_LOG_DEBUG
   elog(NOTICE, "copy data ...");
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
   if (TRIGGER_FIRED_BY_INSERT(trigdata->tg_event)) {
     /* trigger called from INSERT */
 #ifdef TABLE_LOG_DEBUG
     elog(NOTICE, "mode: INSERT -> new");
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
     __table_log(trigdata, "INSERT", "new", trigdata->tg_trigtuple, number_columns, log_table, use_session_user, log_schema);
   } else if (TRIGGER_FIRED_BY_UPDATE(trigdata->tg_event)) {
     /* trigger called from UPDATE */
 #ifdef TABLE_LOG_DEBUG
     elog(NOTICE, "mode: UPDATE -> old");
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
     __table_log(trigdata, "UPDATE", "old", trigdata->tg_trigtuple, number_columns, log_table, use_session_user, log_schema);
 #ifdef TABLE_LOG_DEBUG
     elog(NOTICE, "mode: UPDATE -> new");
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
     __table_log(trigdata, "UPDATE", "new", trigdata->tg_newtuple, number_columns, log_table, use_session_user, log_schema);
   } else if (TRIGGER_FIRED_BY_DELETE(trigdata->tg_event)) {
     /* trigger called from DELETE */
 #ifdef TABLE_LOG_DEBUG
     elog(NOTICE, "mode: DELETE -> old");
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
     __table_log(trigdata, "DELETE", "old", trigdata->tg_trigtuple, number_columns, log_table, use_session_user, log_schema);
   } else {
     elog(ERROR, "trigger fired by unknown event");
@@ -242,7 +251,7 @@ Datum table_log(PG_FUNCTION_ARGS) {
 
 #ifdef TABLE_LOG_DEBUG
   elog(NOTICE, "cleanup, trigger done");
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
   /* clean up */
   pfree(log_table);
 
@@ -279,7 +288,7 @@ static void __table_log (TriggerData *trigdata, char *changed_mode, char *change
 
 #ifdef TABLE_LOG_DEBUG
   elog(NOTICE, "calculate query size");
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
   /* add all sizes we need and know at this point */
   size_query += strlen(changed_mode) + strlen(changed_tuple) + strlen(log_table) + strlen(log_schema);
 
@@ -316,10 +325,10 @@ static void __table_log (TriggerData *trigdata, char *changed_mode, char *change
 
 #ifdef TABLE_LOG_DEBUG
   // elog(NOTICE, "query size: %i", size_query);
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
 #ifdef TABLE_LOG_DEBUG
   elog(NOTICE, "build query");
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
   /* allocate memory */
   query_start = (char *) palloc(size_query * sizeof(char));
   query = query_start;
@@ -392,8 +401,8 @@ static void __table_log (TriggerData *trigdata, char *changed_mode, char *change
 #else
 #ifdef TABLE_LOG_DEBUG
   elog(NOTICE, "execute query");
-#endif /*TABLE_LOG_DEBUG */
-#endif /*TABLE_LOG_DEBUG_QUERY */
+#endif /* TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG_QUERY */
   /* execute insert */
   ret = SPI_exec(query_start, 0);
   if (ret != SPI_OK_INSERT) {
@@ -401,7 +410,7 @@ static void __table_log (TriggerData *trigdata, char *changed_mode, char *change
   }
 #ifdef TABLE_LOG_DEBUG
   elog(NOTICE, "done");
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
 
   /* clean up */
   pfree(query_start);
@@ -430,7 +439,7 @@ Datum table_log_show_column(PG_FUNCTION_ARGS) {
 
 #ifdef TABLE_LOG_DEBUG
   elog(NOTICE, "start table_log_show_column()");
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
 
   /* Connect to SPI manager */
   ret = SPI_connect();
@@ -440,7 +449,7 @@ Datum table_log_show_column(PG_FUNCTION_ARGS) {
 
 #ifdef TABLE_LOG_DEBUG
   elog(NOTICE, "this function isnt available yet");
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
 
   /* close SPI connection */
   SPI_finish();
@@ -491,7 +500,7 @@ Datum table_log_restore_table(PG_FUNCTION_ARGS) {
   /* the timestamp in past */
   Datum      timestamp = PG_GETARG_DATUM(5);
   /* the single pkey, can be null (then all keys will be restored) */
-  char  *search_pkey;
+  char  *search_pkey = "";
   /* the restore method
     - 0: restore from blank table (default)
          needs a complete log table!
@@ -506,7 +515,7 @@ Datum table_log_restore_table(PG_FUNCTION_ARGS) {
   int            ret, results, i, number_columns;
   char           query[250 + NAMEDATALEN];	/* for getting table infos (250 chars (+ one times the length of all names) should be enough) */
   int            need_search_pkey = 0;          /* does we have a single key to restore? */
-  char           *tmp, *timestamp_string, *old_pkey_string;
+  char           *tmp, *timestamp_string, *old_pkey_string = "";
   char           *trigger_mode, *trigger_tuple, *trigger_changed;
   SPITupleTable  *spi_tuptable = NULL;          /* for saving query results */
   VarChar        *return_name;
@@ -529,7 +538,7 @@ Datum table_log_restore_table(PG_FUNCTION_ARGS) {
 
 #ifdef TABLE_LOG_DEBUG
   elog(NOTICE, "start table_log_restore_table()");
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
 
   /* does we have all arguments? */
   if (PG_ARGISNULL(0)) {
@@ -562,7 +571,7 @@ Datum table_log_restore_table(PG_FUNCTION_ARGS) {
         need_search_pkey = 1;
 #ifdef TABLE_LOG_DEBUG
         elog(NOTICE, "table_log_restore_table: will restore a single key");
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
       }
     }
   }
@@ -584,7 +593,7 @@ Datum table_log_restore_table(PG_FUNCTION_ARGS) {
   } else {
     elog(NOTICE, "table_log_restore_table: will restore from begin forward");
   }
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
   if (PG_NARGS() >= 9) {
     if (!PG_ARGISNULL(8)) {
       not_temporarly = PG_GETARG_INT32(8);
@@ -599,7 +608,7 @@ Datum table_log_restore_table(PG_FUNCTION_ARGS) {
   if (not_temporarly == 1) {
     elog(NOTICE, "table_log_restore_table: dont create restore table temporarly");
   }
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
   /* get parameter */
   table_orig = __table_log_varcharout((VarChar *)PG_GETARG_VARCHAR_P(0));
   table_orig_pkey = __table_log_varcharout((VarChar *)PG_GETARG_VARCHAR_P(1));
@@ -622,7 +631,7 @@ Datum table_log_restore_table(PG_FUNCTION_ARGS) {
   snprintf(query, 249, "SELECT a.attname FROM pg_class c, pg_attribute a WHERE c.relname = %s AND a.attnum > 0 AND a.attrelid = c.oid ORDER BY a.attnum", do_quote_literal(table_orig));
 #ifdef TABLE_LOG_DEBUG_QUERY
   elog(NOTICE, "query: %s", query);
-#endif /*TABLE_LOG_DEBUG_QUERY */
+#endif /* TABLE_LOG_DEBUG_QUERY */
   ret = SPI_exec(query, 0);
   if (ret != SPI_OK_SELECT) {
     elog(ERROR, "could not check relation: %s", table_orig);
@@ -636,7 +645,7 @@ Datum table_log_restore_table(PG_FUNCTION_ARGS) {
   snprintf(query, 249, "SELECT a.attname FROM pg_class c, pg_attribute a WHERE c.relname=%s AND c.relkind='r' AND a.attname=%s AND a.attnum > 0 AND a.attrelid = c.oid", do_quote_literal(table_orig), do_quote_literal(table_orig_pkey));
 #ifdef TABLE_LOG_DEBUG_QUERY
   elog(NOTICE, "query: %s", query);
-#endif /*TABLE_LOG_DEBUG_QUERY */
+#endif /* TABLE_LOG_DEBUG_QUERY */
   ret = SPI_exec(query, 0);
   if (ret != SPI_OK_SELECT) {
     elog(ERROR, "could not check relation: %s", table_orig);
@@ -646,13 +655,13 @@ Datum table_log_restore_table(PG_FUNCTION_ARGS) {
   }
 #ifdef TABLE_LOG_DEBUG
   elog(NOTICE, "original table: OK (%i columns)", table_orig_columns);
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
 
   /* check log table */
   snprintf(query, 249, "SELECT a.attname FROM pg_class c, pg_attribute a WHERE c.relname = %s AND a.attnum > 0 AND a.attrelid = c.oid ORDER BY a.attnum", do_quote_literal(table_log));
 #ifdef TABLE_LOG_DEBUG_QUERY
   elog(NOTICE, "query: %s", query);
-#endif /*TABLE_LOG_DEBUG_QUERY */
+#endif /* TABLE_LOG_DEBUG_QUERY */
   ret = SPI_exec(query, 0);
   if (ret != SPI_OK_SELECT) {
     elog(ERROR, "could not check relation [1]: %s", table_log);
@@ -666,7 +675,7 @@ Datum table_log_restore_table(PG_FUNCTION_ARGS) {
   snprintf(query, 249, "SELECT a.attname FROM pg_class c, pg_attribute a WHERE c.relname=%s AND c.relkind='r' AND a.attname=%s AND a.attnum > 0 AND a.attrelid = c.oid", do_quote_literal(table_log), do_quote_literal(table_log_pkey));
 #ifdef TABLE_LOG_DEBUG_QUERY
   elog(NOTICE, "query: %s", query);
-#endif /*TABLE_LOG_DEBUG_QUERY */
+#endif /* TABLE_LOG_DEBUG_QUERY */
   ret = SPI_exec(query, 0);
   if (ret != SPI_OK_SELECT) {
     elog(ERROR, "could not check relation [3]: %s", table_log);
@@ -676,13 +685,13 @@ Datum table_log_restore_table(PG_FUNCTION_ARGS) {
   }
 #ifdef TABLE_LOG_DEBUG
   elog(NOTICE, "log table: OK (%i columns)", table_log_columns);
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
 
   /* check restore table */
   snprintf(query, 249, "SELECT pg_attribute.attname AS a FROM pg_class, pg_attribute WHERE pg_class.relname=%s AND pg_attribute.attnum > 0 AND pg_attribute.attrelid=pg_class.oid", do_quote_literal(table_restore));
 #ifdef TABLE_LOG_DEBUG_QUERY
   elog(NOTICE, "query: %s", query);
-#endif /*TABLE_LOG_DEBUG_QUERY */
+#endif /* TABLE_LOG_DEBUG_QUERY */
   ret = SPI_exec(query, 0);
   if (ret != SPI_OK_SELECT) {
     elog(ERROR, "could not check relation: %s", table_restore);
@@ -692,13 +701,13 @@ Datum table_log_restore_table(PG_FUNCTION_ARGS) {
   }
 #ifdef TABLE_LOG_DEBUG
   elog(NOTICE, "restore table: OK (doesnt exists)");
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
 
   /* now get all columns from original table */
   snprintf(query, 249, "SELECT a.attname, format_type(a.atttypid, a.atttypmod), a.attnum FROM pg_class c, pg_attribute a WHERE c.relname = %s AND a.attnum > 0 AND a.attrelid = c.oid ORDER BY a.attnum", do_quote_literal(table_orig));
 #ifdef TABLE_LOG_DEBUG_QUERY
   elog(NOTICE, "query: %s", query);
-#endif /*TABLE_LOG_DEBUG_QUERY */
+#endif /* TABLE_LOG_DEBUG_QUERY */
   ret = SPI_exec(query, 0);
   if (ret != SPI_OK_SELECT) {
     elog(ERROR, "could not get columns from relation: %s", table_orig);
@@ -711,7 +720,7 @@ Datum table_log_restore_table(PG_FUNCTION_ARGS) {
   number_columns = SPI_processed;
 #ifdef TABLE_LOG_DEBUG
   elog(NOTICE, "number columns: %i", results);
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
   for (i = 0; i < results; i++) {
     /* the column name */
     tmp = SPI_getvalue(SPI_tuptable->vals[i], SPI_tuptable->tupdesc, 1);
@@ -740,12 +749,12 @@ Datum table_log_restore_table(PG_FUNCTION_ARGS) {
   }
 #ifdef TABLE_LOG_DEBUG
   elog(NOTICE, "string for columns: %s", col_query_start);
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
 
   /* create restore table */
 #ifdef TABLE_LOG_DEBUG
   elog(NOTICE, "create restore table: %s", table_restore);
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
 
   snprintf(query, 249, "SELECT * INTO ");
   /* per default create a temporary table */
@@ -770,7 +779,7 @@ Datum table_log_restore_table(PG_FUNCTION_ARGS) {
   }
 #ifdef TABLE_LOG_DEBUG_QUERY
   elog(NOTICE, "query: %s", query);
-#endif /*TABLE_LOG_DEBUG_QUERY */
+#endif /* TABLE_LOG_DEBUG_QUERY */
   ret = SPI_exec(query, 0);
   if (ret != SPI_OK_SELINTO) {
     elog(ERROR, "could not check relation: %s", table_restore);
@@ -778,7 +787,7 @@ Datum table_log_restore_table(PG_FUNCTION_ARGS) {
   if (method == 1) {
 #ifdef TABLE_LOG_DEBUG
     elog(NOTICE, "%i rows copied", SPI_processed);
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
   }
 
   /* get timestamp as string */
@@ -790,12 +799,12 @@ Datum table_log_restore_table(PG_FUNCTION_ARGS) {
   } else {
     elog(NOTICE, "need logs from end to timestamp: %s", timestamp_string);
   }
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
 
   /* now build query for getting logs */
 #ifdef TABLE_LOG_DEBUG
   elog(NOTICE, "build query for getting logs");
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
 
   d_query_size += d_query_size + strlen(col_query_start);
   if (need_search_pkey == 1) {
@@ -830,14 +839,14 @@ Datum table_log_restore_table(PG_FUNCTION_ARGS) {
   d_query = d_query_start + strlen(d_query_start);
 #ifdef TABLE_LOG_DEBUG_QUERY
   elog(NOTICE, "query: %s", d_query_start);
-#endif /*TABLE_LOG_DEBUG_QUERY */
+#endif /* TABLE_LOG_DEBUG_QUERY */
   ret = SPI_exec(d_query_start, 0);
   if (ret != SPI_OK_SELECT) {
     elog(ERROR, "could not get log data from table: %s", table_log);
   }
 #ifdef TABLE_LOG_DEBUG
   elog(NOTICE, "number log entries to restore: %i", SPI_processed);
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
   results = SPI_processed;
   /* save results */
   spi_tuptable = SPI_tuptable;
@@ -855,7 +864,7 @@ Datum table_log_restore_table(PG_FUNCTION_ARGS) {
         old_pkey_string = SPI_getvalue(spi_tuptable->vals[i], spi_tuptable->tupdesc, col_pkey);
 #ifdef TABLE_LOG_DEBUG
         elog(NOTICE, "tuple old pkey: %s", old_pkey_string);
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
         /* then skip this tuple */
         continue;
       }
@@ -864,7 +873,7 @@ Datum table_log_restore_table(PG_FUNCTION_ARGS) {
         old_pkey_string = SPI_getvalue(spi_tuptable->vals[i], spi_tuptable->tupdesc, col_pkey);
 #ifdef TABLE_LOG_DEBUG
         elog(NOTICE, "tuple: old pkey: %s", old_pkey_string);
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
         /* then skip this tuple */
         continue;
       }
@@ -874,7 +883,7 @@ Datum table_log_restore_table(PG_FUNCTION_ARGS) {
       /* roll forward */
 #ifdef TABLE_LOG_DEBUG
       elog(NOTICE, "tuple: %s  %s  %s", trigger_mode, trigger_tuple, trigger_changed);
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
       if (strcmp((const char *)trigger_mode, (const char *)"INSERT") == 0) {
         __table_log_restore_table_insert(spi_tuptable, table_restore, table_orig_pkey, col_query_start, col_pkey, number_columns, i);
       } else if (strcmp((const char *)trigger_mode, (const char *)"UPDATE") == 0) {
@@ -898,7 +907,7 @@ Datum table_log_restore_table(PG_FUNCTION_ARGS) {
       }
 #ifdef TABLE_LOG_DEBUG
       elog(NOTICE, "tuple: %s  %s  %s", rb_mode, trigger_tuple, trigger_changed);
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
       if (strcmp((const char *)trigger_mode, (const char *)"INSERT") == 0) {
         __table_log_restore_table_delete(spi_tuptable, table_restore, table_orig_pkey, col_query_start, col_pkey, number_columns, i);
       } else if (strcmp((const char *)trigger_mode, (const char *)"UPDATE") == 0) {
@@ -911,7 +920,7 @@ Datum table_log_restore_table(PG_FUNCTION_ARGS) {
 
 #ifdef TABLE_LOG_DEBUG
   elog(NOTICE, "table_log_restore_table() done, results in: %s", table_restore);
-#endif /*TABLE_LOG_DEBUG */
+#endif /* TABLE_LOG_DEBUG */
 
   /* convert string to VarChar for result */
   return_name = DatumGetVarCharP(DirectFunctionCall2(varcharin, CStringGetDatum(table_restore), Int32GetDatum(strlen(table_restore) + VARHDRSZ)));
@@ -965,7 +974,7 @@ void __table_log_restore_table_insert(SPITupleTable *spi_tuptable, char *table_r
   strncat(d_query_start, (const char *)")", d_query_size);
 #ifdef TABLE_LOG_DEBUG_QUERY
   elog(NOTICE, "query: %s", d_query_start);
-#endif /*TABLE_LOG_DEBUG_QUERY */
+#endif /* TABLE_LOG_DEBUG_QUERY */
 
   ret = SPI_exec(d_query_start, 0);
   if (ret != SPI_OK_INSERT) {
@@ -1026,7 +1035,7 @@ void __table_log_restore_table_update(SPITupleTable *spi_tuptable, char *table_r
 
 #ifdef TABLE_LOG_DEBUG_QUERY
   elog(NOTICE, "query: %s", d_query_start);
-#endif /*TABLE_LOG_DEBUG_QUERY */
+#endif /* TABLE_LOG_DEBUG_QUERY */
 
   ret = SPI_exec(d_query_start, 0);
   if (ret != SPI_OK_UPDATE) {
@@ -1060,7 +1069,7 @@ void __table_log_restore_table_delete(SPITupleTable *spi_tuptable, char *table_r
 
 #ifdef TABLE_LOG_DEBUG_QUERY
   elog(NOTICE, "query: %s", d_query_start);
-#endif /*TABLE_LOG_DEBUG_QUERY */
+#endif /* TABLE_LOG_DEBUG_QUERY */
 
   ret = SPI_exec(d_query_start, 0);
   if (ret != SPI_OK_DELETE) {
