@@ -17,20 +17,19 @@ Table of content:
 
 1. Info
 
-table_log is a set of functions to log changes on a table in PostgreSQL
+table_log is a set of functions for logging changes on a table in PostgreSQL
 and to restore the state of the table or a specific row on any time
 in the past.
 
 For now it contains 2 functions:
-table_log() -- log changes to another table
+table_log() -- trigger function for logging changes into another table
 table_log_restore_table() -- restore a table or a specific column
 
-NOTE: you can only restore a table where the original table and the
-logging table has a primary key!
-
-This means: you can log everything, but for the restore function you must
-have a primary key on the original table (and of course a different pkey
-on the log table).
+NOTE: you can only restore a table if the original table and the
+logging table have primary keys! The logging table cannot have the
+primary key of the original table as primary key - you need to add
+another primary key. The steps how to do this are explained in
+this document.
 
 In the beginning (for table_log()) i have used some code from noup.c
 (you will find this in the contrib directory), but there should be
@@ -76,11 +75,11 @@ make USE_PGXS=1 install
 The pg_config tool must be in your $PATH for installation and
 you must have the PostgreSQL development packages installed.
 Of course, the usual development tools like make, gcc ect. should
-also be there ;-)
+also be available ;-)
 
-After this you have to create some new functions:
-- in every database you want to use this functions
-- if you add this functions to template1, they will be copied to every
+After the compilation step you have to create some new functions:
+- in every database you want to use table_log
+- if you add this functions into template1, they will be copied in every
   new database
 - for older pg versions <= 7.2 change "RETURNS trigger" to "RETURNS opaque",
   but versions < 7.4 are no longer supported

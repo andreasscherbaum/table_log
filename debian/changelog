@@ -1,0 +1,12 @@
+postgresql-tablelog (0.4.4-1) unstable; urgency=low
+
+  * Release 0.4.4
+
+ -- Andreas 'ads' Scherbaum <ads@pgug.de>  Wed, 02 May 2007 00:38:00 +0100
+
+postgresql-tablelog (0.4.3-1) unstable; urgency=low
+
+  * Initial release
+
+ -- Alexander Wirt <formorer@debian.org>  Sun, 25 Feb 2007 16:13:38 +0100
+

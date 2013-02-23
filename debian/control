@@ -1,0 +1,16 @@
+Source: postgresql-tablelog
+Section: misc
+Priority: extra
+Maintainer: Alexander Wirt <formorer@debian.org>
+Uploaders: Andreas 'ads' Scherbaum <ads@pgug.de>
+Build-Depends: debhelper (>= 5), postgresql-server-dev-8.2 | postgresql-server-dev-8.1, libpq-dev (>= 8.1)
+Standards-Version: 3.7.2
+
+Package: postgresql-tablelog
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, postgresql-8.2 | postgresql-8.1
+Description: log changes on a table in PostgresSQL 
+ table_log is a set of functions to log changes on a table in PostgresSQL and
+ to restore the state of the table or a specific row on any time in the past. 
+ .
+ Homepage: http://pgfoundry.org/projects/tablelog/
